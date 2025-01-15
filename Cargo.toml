@@ -1,0 +1,33 @@
+[package]
+name = "tanic"
+version = "0.1.0"
+edition = "2021"
+authors = ["Scott Donnelly <scott@donnel.ly>"]
+description = ""
+keywords = []
+readme = "README.md"
+repository = "https://github.com/sdd/tanic"
+documentation = "https://docs.rs/tanic"
+license = "MIT OR Apache-2.0"
+autobenches = false
+resolver = "2"
+
+[package.metadata.docs.rs]
+all-features = true
+
+[lib]
+name = "tanic"
+
+[[bin]]
+name = "tanic-cli"
+path = "src/bin/main.rs"
+
+[dependencies]
+clap = "4"
+crossterm = "0.28"
+iceberg = "0.4"
+miette = { version = "7.4.0", features = ["fancy"] }
+ratatui = "0.29"
+streemap = "0.1"
+terminal_size = "0.4.1"
+tokio = "1"
