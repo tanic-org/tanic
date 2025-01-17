@@ -1,9 +1,11 @@
 //! Tanic Error Module
 
+use crate::TanicMessage;
 use figment::Error as FigmentError;
 use miette::Result as MietteResult;
 use std::io::Error as StdIoError;
 use thiserror::Error;
+use tokio::sync::mpsc::error::SendError;
 
 /// Standard Tanic `Result`.
 ///
@@ -19,4 +21,7 @@ pub enum TanicError {
 
     #[error("io error")]
     IoError(#[from] StdIoError),
+
+    #[error("message send error")]
+    MpscSendError(#[from] SendError<TanicMessage>),
 }

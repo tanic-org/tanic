@@ -21,10 +21,11 @@ path = "lib.rs"
 [dependencies]
 tanic-core = { path = "../tanic-core" }
 
-crossterm = "0.28"
+crossterm = { version = "0.28", features = ["event-stream"] }
 ratatui = "0.29"
 serde = { workspace = true }
 streemap = "0.1"
 terminal_size = "0.4"
 tokio = { workspace = true }
 tracing = { workspace = true }
+futures = "0.3.31"
