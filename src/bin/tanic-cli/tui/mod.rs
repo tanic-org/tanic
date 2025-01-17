@@ -14,8 +14,16 @@ use ratatui::{
 };
 use tanic::Result;
 use tokio::sync::mpsc::{Receiver, Sender};
+use crate::tui::connection_list::render_view_connection_list;
+use crate::tui::connection_prompt::render_view_connection_prompt;
+use crate::tui::initializing::render_view_initializing;
+use crate::tui::namespace_tree_view::render_namespace_treeview;
 
 mod ui_state;
+mod connection_list;
+mod connection_prompt;
+mod namespace_tree_view;
+mod initializing;
 
 pub enum UiMessage {}
 
@@ -23,6 +31,7 @@ pub(crate) struct TanicTui {
     should_exit: bool,
     rx: Receiver<AppMessage>,
     tx: Sender<UiMessage>,
+    state: TanicUiState,
 }
 
 impl TanicTui {
@@ -35,6 +44,8 @@ impl TanicTui {
             should_exit: false,
             rx,
             tx,
+
+            state: TanicUiState::Initializing,
         }
     }
 
@@ -83,26 +94,11 @@ impl TanicTui {
 
 impl Widget for &TanicTui {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let title = Line::from(" Tanic ".bold());
-        let instructions = Line::from(vec![
-            " Decrement ".into(),
-            "<Left>".blue().bold(),
-            " Increment ".into(),
-            "<Right>".blue().bold(),
-            " Quit ".into(),
-            "<Q> ".blue().bold(),
-        ]);
-
-        let block = Block::bordered()
-            .title(title.centered())
-            .title_bottom(instructions.centered())
-            .border_set(border::THICK);
-
-        let counter_text = Text::from(vec![Line::from(vec!["Hello ".into(), "World".into()])]);
-
-        Paragraph::new(counter_text)
-            .centered()
-            .block(block)
-            .render(area, buf);
+        match &self.state {
+            TanicUiState::Initializing => render_view_initializing(area, buf),
+            TanicUiState::ConnectionPrompt(view_state) => render_view_connection_prompt(view_state, area, buf),
+            TanicUiState::ConnectionList(view_state) => render_view_connection_list(view_state, area, buf),
+            TanicUiState::NamespaceTreeView(view_state) => render_namespace_treeview(view_state, area, buf),
+        }
     }
 }

@@ -13,5 +13,7 @@ pub mod config;
 pub mod errors;
 pub mod iceberg_context;
 
+pub mod app_message;
+
 pub use errors::Result;
 pub use errors::TanicError;

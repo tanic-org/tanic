@@ -18,7 +18,6 @@ async fn main() -> Result<()> {
     let (app_tx, app_rx) = tokio::sync::mpsc::channel(1);
 
     let ui_task = tokio::spawn(async move { tui::TanicTui::start(app_rx, ui_tx).await });
-
     let app_task = tokio::spawn(async move { app::TanicTuiApp::start(ui_rx, app_tx).await });
 
     tokio::select! {
