@@ -5,10 +5,7 @@ use ratatui::widgets::{Block, Paragraph};
 pub(crate) fn render_view_initializing(area: Rect, buf: &mut Buffer) {
     let title = Line::from(" Tanic ".bold());
 
-    let instructions = Line::from(vec![
-        " Quit ".into(),
-        "<Q> ".blue().bold(),
-    ]);
+    let instructions = Line::from(vec![" Quit ".into(), "<Q> ".blue().bold()]);
 
     let block = Block::bordered()
         .title(title.centered())

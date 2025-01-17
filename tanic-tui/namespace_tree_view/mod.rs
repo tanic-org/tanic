@@ -1,7 +1,7 @@
+use crate::ui_state::ViewNamespaceTreeViewState;
 use ratatui::prelude::*;
 use ratatui::symbols::border;
 use ratatui::widgets::{Block, Paragraph};
-use crate::tui::ui_state::ViewNamespaceTreeViewState;
 
 pub(crate) struct NamespaceTreeviewState {
     items: Vec<NamespaceTreeviewItem>,
@@ -13,7 +13,11 @@ pub(crate) struct NamespaceTreeviewItem {
     size: usize,
 }
 
-pub(crate) fn render_namespace_treeview(view_state: &ViewNamespaceTreeViewState, area: Rect, buf: &mut Buffer) {
+pub(crate) fn render_namespace_treeview(
+    view_state: &ViewNamespaceTreeViewState,
+    area: Rect,
+    buf: &mut Buffer,
+) {
     let title = Line::from(" Tanic ".bold());
 
     let block = Block::bordered()

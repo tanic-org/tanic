@@ -2,11 +2,11 @@
 //!
 //! Internal application state, not for consumption outside of the library
 
-use crate::{args::Args, Result};
+use crate::iceberg_context::IcebergContext;
 use http::Uri;
 use iceberg::NamespaceIdent;
-use tanic::config::{CatalogConnectionDetails, TanicConfig};
-use tanic::iceberg_context::IcebergContext;
+use tanic_core::config::{CatalogConnectionDetails, TanicConfig};
+use tanic_core::Result;
 
 /// A currently open connection
 ///
@@ -23,7 +23,6 @@ pub struct TanicState {
     config: TanicConfig,
     current_connections: Vec<CurrentConnection>,
     current_iceberg_context: Option<IcebergContext>,
-
     pub(crate) current_namespaces: Option<Vec<NamespaceIdent>>,
 }
 
@@ -39,15 +38,8 @@ impl Default for TanicState {
 }
 
 impl TanicState {
-    pub(crate) fn from_args_and_config(args: &Args, config: TanicConfig) -> Self {
-        let current_connections = if let Some(ref catalogue_uri) = args.catalogue_uri {
-            let conn = CurrentConnection::UnsavedConnection(CatalogConnectionDetails {
-                name: "Unnamed Connection".to_string(),
-                uri: catalogue_uri.clone(),
-            });
-
-            vec![conn]
-        } else if config.library.is_empty() {
+    pub(crate) fn from_config(config: &TanicConfig) -> Self {
+        let current_connections = if config.library.is_empty() {
             vec![]
         } else {
             let conn = CurrentConnection::SavedConnection(0);
@@ -55,7 +47,7 @@ impl TanicState {
         };
 
         Self {
-            config,
+            config: config.clone(),
             current_connections,
             current_iceberg_context: None,
             current_namespaces: None,
@@ -94,6 +86,14 @@ impl TanicState {
         let root_namespaces = ctx.catalog.list_namespaces(None).await.unwrap();
 
         self.current_namespaces = Some(root_namespaces);
+
+        Ok(())
+    }
+
+    pub fn set_current_connection_from_details(&mut self, name: String, uri: Uri) -> Result<()> {
+        let conn = CurrentConnection::UnsavedConnection(CatalogConnectionDetails { name, uri });
+
+        self.current_connections = vec![conn];
 
         Ok(())
     }
