@@ -1,4 +1,4 @@
-use tanic::config::CatalogConnectionDetails;
+use tanic_core::config::CatalogConnectionDetails;
 
 pub(crate) struct AddConnectionDialogState {
     name: String,
@@ -23,6 +23,4 @@ pub(crate) struct ViewConnectionListState {
     add_connection_dialog_uri: String,
 }
 
-pub(crate) struct ViewNamespaceTreeViewState {
-
-}
+pub(crate) struct ViewNamespaceTreeViewState {}

@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::Result;
 
 /// Represents a named set of connection details for an Iceberg catalog
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CatalogConnectionDetails {
     /// The name of this connection
     pub name: String,
@@ -25,7 +25,7 @@ pub struct CatalogConnectionDetails {
 /// persistable user config.
 ///
 /// Loaded in at application startup from $CONFIG/tanic/tanic.toml
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TanicConfig {
     /// list of known connections
     pub library: Vec<CatalogConnectionDetails>,
