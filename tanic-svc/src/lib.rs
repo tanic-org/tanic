@@ -1,63 +1,82 @@
-use state::TanicState;
-use std::sync::Arc;
+use crate::iceberg_context::IcebergContext;
+use http::Uri;
+use iceberg::NamespaceIdent;
+use std::sync::{Arc, RwLock};
+use tanic_core::config::ConnectionDetails;
 use tanic_core::message::TanicMessage;
 use tanic_core::Result;
 use tanic_core::TanicConfig;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 pub mod iceberg_context;
-mod state;
 
 pub struct TanicSvc {
     should_exit: bool,
     rx: Receiver<TanicMessage>,
     tx: Sender<TanicMessage>,
+    config: Arc<RwLock<TanicConfig>>,
 
-    state: TanicState,
+    open_connections: Vec<IcebergContext>,
 }
 
 impl TanicSvc {
     pub async fn start(
         rx: Receiver<TanicMessage>,
         tx: Sender<TanicMessage>,
-        config: Arc<TanicConfig>,
+        config: Arc<RwLock<TanicConfig>>,
     ) -> Result<()> {
-        let state = TanicState::from_config(&config);
-        tracing::info!(?state, "initial state");
-
-        let mut svc = TanicSvc::new(rx, tx, state);
-
-        svc.state.init_iceberg_context();
-        if svc.state.has_iceberg_context() {
-            svc.state.refresh_iceberg_namespaces().await?;
-        }
-        tracing::info!(root_namespaces = ?svc.state.current_namespaces);
-
+        let mut svc = TanicSvc::new(rx, tx, config);
         svc.event_loop().await
     }
 
-    fn new(rx: Receiver<TanicMessage>, tx: Sender<TanicMessage>, state: TanicState) -> Self {
+    pub fn new(
+        rx: Receiver<TanicMessage>,
+        tx: Sender<TanicMessage>,
+        config: Arc<RwLock<TanicConfig>>,
+    ) -> Self {
         Self {
-            state,
+            config,
+            open_connections: vec![],
             should_exit: false,
             rx,
             tx,
         }
     }
 
-    pub async fn event_loop(&mut self) -> Result<()> {
+    async fn event_loop(&mut self) -> Result<()> {
         while !self.should_exit {
             let Some(message) = self.rx.recv().await else {
                 break;
             };
+            tracing::info!(?message, "svc received a message");
 
             match message {
                 TanicMessage::Exit => {
                     self.should_exit = true;
                 }
+
+                TanicMessage::ConnectTo(connection_details) => {
+                    self.connect_to(connection_details).await?;
+                }
+
                 _ => {}
             }
         }
+
+        Ok(())
+    }
+
+    async fn connect_to(&mut self, conn_details: ConnectionDetails) -> Result<()> {
+        let iceberg_context = IcebergContext::from_connection_details(&conn_details);
+
+        let namespaces = iceberg_context.namespaces();
+        self.tx
+            .send(TanicMessage::ShowNamespaces(namespaces))
+            .await?;
+
+        iceberg_context.populate_namespaces();
+
+        self.open_connections = vec![iceberg_context];
 
         Ok(())
     }

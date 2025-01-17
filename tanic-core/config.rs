@@ -7,12 +7,15 @@ use figment::{
 };
 use http::Uri;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::Result;
 
 /// Represents a named set of connection details for an Iceberg catalog
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct CatalogConnectionDetails {
+pub struct ConnectionDetails {
+    pub id: Uuid,
+
     /// The name of this connection
     pub name: String,
 
@@ -22,13 +25,25 @@ pub struct CatalogConnectionDetails {
     // Type?
 }
 
+impl ConnectionDetails {
+    pub fn new_anon(uri: Uri) -> Self {
+        let mut generator = names::Generator::default();
+
+        Self {
+            id: Uuid::new_v4(),
+            name: generator.next().expect("could not generate a random name"),
+            uri,
+        }
+    }
+}
+
 /// persistable user config.
 ///
 /// Loaded in at application startup from $CONFIG/tanic/tanic.toml
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TanicConfig {
     /// list of known connections
-    pub library: Vec<CatalogConnectionDetails>,
+    pub library: Vec<ConnectionDetails>,
 }
 
 impl Default for TanicConfig {

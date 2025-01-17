@@ -24,7 +24,7 @@ pub(crate) fn render_namespace_treeview(
         .title(title.centered())
         .border_set(border::THICK);
 
-    Paragraph::new("TODO: Connection list")
+    Paragraph::new("TODO: Namespaces")
         .centered()
         .block(block)
         .render(area, buf);
