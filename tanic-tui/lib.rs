@@ -104,8 +104,8 @@ impl TanicTui {
     fn handle_key_event(&self, key_event: KeyEvent) {
         match key_event.code {
             KeyCode::Char('q') => self.exit(),
-            // KeyCode::Left => self.decrement_counter(),
-            // KeyCode::Right => self.increment_counter(),
+            KeyCode::Left => self.nav_left(),
+            KeyCode::Right => self.nav_right(),
             _ => {}
         }
     }
@@ -114,10 +114,67 @@ impl TanicTui {
         self.should_exit.store(true, Ordering::Relaxed)
     }
 
+    fn nav_left(&self) {
+        let mut state = self.state.write().unwrap();
+        match state.deref() {
+            TanicUiState::NamespaceTreeView(ViewNamespaceTreeViewState {
+                selected_idx,
+                namespaces,
+            }) => {
+                let selected_idx = if *selected_idx == 0 {
+                    namespaces.len() - 1
+                } else {
+                    selected_idx - 1
+                };
+
+                *state = TanicUiState::NamespaceTreeView(ViewNamespaceTreeViewState {
+                    selected_idx,
+                    namespaces: namespaces.clone(),
+                })
+            }
+            _ => {}
+        }
+    }
+
+    fn nav_right(&self) {
+        let mut state = self.state.write().unwrap();
+        match state.deref() {
+            TanicUiState::NamespaceTreeView(ViewNamespaceTreeViewState {
+                selected_idx,
+                namespaces,
+            }) => {
+                let selected_idx = if *selected_idx == namespaces.len() - 1 {
+                    0
+                } else {
+                    selected_idx + 1
+                };
+
+                *state = TanicUiState::NamespaceTreeView(ViewNamespaceTreeViewState {
+                    selected_idx,
+                    namespaces: namespaces.clone(),
+                })
+            }
+            _ => {}
+        }
+    }
+
     fn show_namespaces(&self, namespaces: Vec<NamespaceDeets>) {
         let mut state = self.state.write().unwrap();
 
-        *state = TanicUiState::NamespaceTreeView(ViewNamespaceTreeViewState { namespaces });
+        let selected_idx = if let TanicUiState::NamespaceTreeView(ViewNamespaceTreeViewState {
+            selected_idx,
+            ..
+        }) = state.deref()
+        {
+            *selected_idx
+        } else {
+            0
+        };
+
+        *state = TanicUiState::NamespaceTreeView(ViewNamespaceTreeViewState {
+            namespaces,
+            selected_idx,
+        });
     }
 }
 

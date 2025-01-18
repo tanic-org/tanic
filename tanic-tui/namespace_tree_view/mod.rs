@@ -1,4 +1,5 @@
 use crate::ui_state::ViewNamespaceTreeViewState;
+use ratatui::prelude::Stylize;
 use ratatui::prelude::*;
 use ratatui::widgets::canvas::{Canvas, Rectangle};
 use ratatui::widgets::Block;
@@ -58,6 +59,8 @@ pub(crate) fn render_namespace_treeview(
 
     layout.layout_items(&mut items, bounds);
 
+    let selected_idx = view_state.selected_idx;
+
     let canvas = Canvas::default()
         .block(Block::bordered().title(" Tanic /// Namespaces "))
         .x_bounds([top.x as f64, (top.x + top.width) as f64])
@@ -65,18 +68,29 @@ pub(crate) fn render_namespace_treeview(
         .paint(|ctx| {
             for (idx, item) in items.iter().enumerate() {
                 let item_bounds = item.bounds();
-                ctx.draw(&Rectangle {
+
+                let rect = Rectangle {
                     x: item_bounds.x,
                     y: item_bounds.y,
                     width: item_bounds.w,
                     height: item_bounds.h,
-                    color: Color::Red,
-                });
+                    color: Color::White,
+                };
+
+                ctx.draw(&rect);
+
+                let style = if idx == selected_idx {
+                    Style::new().black().bold().on_white()
+                } else {
+                    Style::new().white()
+                };
+                let text = view_state.namespaces[idx].name.clone();
+                let text = Line::styled(text, style);
 
                 ctx.print(
                     item_bounds.x + (item_bounds.w * 0.5),
                     item_bounds.y + (item_bounds.h * 0.5),
-                    (&view_state.namespaces[idx].name).to_string(),
+                    text,
                 );
             }
         });
