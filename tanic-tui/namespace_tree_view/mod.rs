@@ -1,9 +1,7 @@
 use crate::ui_state::ViewNamespaceTreeViewState;
 use ratatui::prelude::*;
-use ratatui::symbols::border;
 use ratatui::widgets::canvas::{Canvas, Rectangle};
-use ratatui::widgets::{Block, Paragraph};
-use std::ops::Deref;
+use ratatui::widgets::Block;
 use treemap::{MapItem, Mappable, Rect as TreeMapRect, TreemapLayout};
 
 use tui_logger::{LevelFilter, TuiLoggerLevelOutput, TuiLoggerWidget, TuiWidgetState};
@@ -49,9 +47,8 @@ pub(crate) fn render_namespace_treeview(
         top.height as f64,
     );
 
-    let namespaces = view_state.namespaces.read().unwrap().as_slice().to_vec();
-
-    let mut items: Vec<Box<dyn Mappable>> = namespaces
+    let mut items: Vec<Box<dyn Mappable>> = view_state
+        .namespaces
         .iter()
         .map(|ns| {
             let res: Box<dyn Mappable> = Box::new(MapItem::with_size(1.0));
@@ -62,7 +59,7 @@ pub(crate) fn render_namespace_treeview(
     layout.layout_items(&mut items, bounds);
 
     let canvas = Canvas::default()
-        .block(Block::bordered().title(" Tanic // Namespaces "))
+        .block(Block::bordered().title(" Tanic /// Namespaces "))
         .x_bounds([top.x as f64, (top.x + top.width) as f64])
         .y_bounds([top.y as f64, (top.y + top.height) as f64])
         .paint(|ctx| {
@@ -79,7 +76,7 @@ pub(crate) fn render_namespace_treeview(
                 ctx.print(
                     item_bounds.x + (item_bounds.w * 0.5),
                     item_bounds.y + (item_bounds.h * 0.5),
-                    (&namespaces[idx].name).to_string(),
+                    (&view_state.namespaces[idx].name).to_string(),
                 );
             }
         });

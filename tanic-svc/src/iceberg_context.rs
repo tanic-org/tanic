@@ -36,30 +36,27 @@ impl IcebergContext {
         }
     }
 
-    pub async fn populate_namespaces(&self) -> Result<()> {
+    pub async fn populate_namespaces(&self) -> Result<Arc<RwLock<Vec<NamespaceDeets>>>> {
         let namespaces = self.namespaces.clone();
         let catalog = self.catalog.clone();
 
-        let _ = tokio::spawn(async move {
-            tokio::spawn(async move {
-                let root_namespaces = catalog.list_namespaces(None).await.unwrap();
+        let root_namespaces = catalog.list_namespaces(None).await.unwrap();
 
-                let root_namespaces = root_namespaces
-                    .into_iter()
-                    .map(|ns| {
-                        let parts = ns.inner();
-                        let name = parts.clone().join(".");
-                        NamespaceDeets { parts, name }
-                    })
-                    .collect::<Vec<_>>();
-
-                let mut guard = namespaces.write().unwrap();
-                *guard = root_namespaces
+        let root_namespaces = root_namespaces
+            .into_iter()
+            .map(|ns| {
+                let parts = ns.inner();
+                let name = parts.clone().join(".");
+                NamespaceDeets { parts, name }
             })
-            .await
-        });
+            .collect::<Vec<_>>();
 
-        Ok(())
+        {
+            let mut guard = namespaces.write().unwrap();
+            *guard = root_namespaces;
+        }
+
+        Ok(namespaces)
     }
 
     pub fn namespaces(&self) -> Arc<RwLock<Vec<NamespaceDeets>>> {

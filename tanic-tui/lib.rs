@@ -114,7 +114,7 @@ impl TanicTui {
         self.should_exit.store(true, Ordering::Relaxed)
     }
 
-    fn show_namespaces(&self, namespaces: Arc<RwLock<Vec<NamespaceDeets>>>) {
+    fn show_namespaces(&self, namespaces: Vec<NamespaceDeets>) {
         let mut state = self.state.write().unwrap();
 
         *state = TanicUiState::NamespaceTreeView(ViewNamespaceTreeViewState { namespaces });
