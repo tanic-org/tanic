@@ -29,3 +29,5 @@ terminal_size = "0.4"
 tokio = { workspace = true }
 tracing = { workspace = true }
 futures = "0.3.31"
+tui-logger = "0.14.1"
+treemap = "0.3.2"

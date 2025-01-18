@@ -74,7 +74,7 @@ impl TanicSvc {
             .send(TanicMessage::ShowNamespaces(namespaces))
             .await?;
 
-        iceberg_context.populate_namespaces();
+        iceberg_context.populate_namespaces().await;
 
         self.open_connections = vec![iceberg_context];
 

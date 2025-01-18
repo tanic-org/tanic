@@ -13,7 +13,7 @@ mod logging;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    logging::init();
+    logging::init_tui_logger();
 
     let args = Args::try_parse().into_diagnostic()?;
     let config = TanicConfig::load().into_diagnostic()?;
@@ -31,7 +31,6 @@ async fn main() -> Result<()> {
         let connection = ConnectionDetails::new_anon(uri.clone());
 
         let message = TanicMessage::ConnectTo(connection);
-        tracing::info!(?message, "sending message");
         svc_app_tx.send(message).await.into_diagnostic()?;
     }
 

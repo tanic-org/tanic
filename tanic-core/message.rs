@@ -18,7 +18,7 @@ pub enum TanicMessage {
     TableNameList(String),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct NamespaceDeets {
     pub parts: Vec<String>,
     pub name: String,
