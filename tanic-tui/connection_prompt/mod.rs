@@ -1,10 +1,10 @@
-use crate::ui_state::ViewConnectionPromptState;
+use crate::ui_state::ConnectionPromptViewState;
 use ratatui::prelude::*;
 use ratatui::symbols::border;
 use ratatui::widgets::{Block, Paragraph};
 
 pub(crate) fn render_view_connection_prompt(
-    state: &ViewConnectionPromptState,
+    state: &ConnectionPromptViewState,
     area: Rect,
     buf: &mut Buffer,
 ) {

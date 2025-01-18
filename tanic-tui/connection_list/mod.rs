@@ -1,10 +1,10 @@
-use crate::ui_state::ViewConnectionListState;
+use crate::ui_state::ConnectionListViewState;
 use ratatui::prelude::*;
 use ratatui::symbols::border;
 use ratatui::widgets::{Block, Paragraph};
 
 pub(crate) fn render_view_connection_list(
-    state: &ViewConnectionListState,
+    state: &ConnectionListViewState,
     area: Rect,
     buf: &mut Buffer,
 ) {

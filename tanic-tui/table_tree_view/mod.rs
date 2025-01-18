@@ -1,4 +1,4 @@
-use crate::ui_state::NamespaceTreeViewState;
+use crate::ui_state::{NamespaceTreeViewState, TableTreeViewState};
 use ratatui::prelude::Stylize;
 use ratatui::prelude::*;
 use ratatui::widgets::canvas::{Canvas, Rectangle};
@@ -11,21 +11,17 @@ use tui_logger::{LevelFilter, TuiLoggerLevelOutput, TuiLoggerWidget, TuiWidgetSt
 const NERD_FONT_ICON_TABLE_FOLDER: &str = "\u{f12e4}"; // 󱋤
 const NERD_FONT_ICON_TABLE: &str = "\u{ebb7}"; // 
 
-pub(crate) struct NamespaceTreeviewState {
-    items: Vec<NamespaceTreeviewItem>,
+pub(crate) struct TableTreeviewState {
+    items: Vec<TableTreeviewItem>,
     selected: Option<usize>,
 }
 
-pub(crate) struct NamespaceTreeviewItem {
+pub(crate) struct TableTreeviewItem {
     name: String,
     size: usize,
 }
 
-pub(crate) fn render_namespace_treeview(
-    view_state: &NamespaceTreeViewState,
-    area: Rect,
-    buf: &mut Buffer,
-) {
+pub(crate) fn render_table_treeview(view_state: &TableTreeViewState, area: Rect, buf: &mut Buffer) {
     let [top, bottom] = Layout::vertical([Constraint::Fill(1), Constraint::Max(6)]).areas(area);
 
     let filter_state = TuiWidgetState::new()
@@ -53,10 +49,10 @@ pub(crate) fn render_namespace_treeview(
     );
 
     let mut items: Vec<Box<dyn Mappable>> = view_state
-        .namespaces
+        .tables
         .iter()
-        .map(|ns| {
-            let res: Box<dyn Mappable> = Box::new(MapItem::with_size(1.0));
+        .map(|table| {
+            let res: Box<dyn Mappable> = Box::new(MapItem::with_size(table.row_count as f64));
             res
         })
         .collect::<Vec<_>>();
@@ -66,7 +62,7 @@ pub(crate) fn render_namespace_treeview(
     let selected_idx = view_state.selected_idx;
 
     let canvas = Canvas::default()
-        .block(Block::bordered().title(" Tanic //// Namespaces "))
+        .block(Block::bordered().title(format!(" Tanic //// {} Namespace ", view_state.namespace)))
         .x_bounds([top.x as f64, (top.x + top.width) as f64])
         .y_bounds([top.y as f64, (top.y + top.height) as f64])
         .paint(|ctx| {
@@ -89,8 +85,8 @@ pub(crate) fn render_namespace_treeview(
                     Style::new().white()
                 };
 
-                let name = view_state.namespaces[idx].name.clone();
-                let name = format!("{} {}", NERD_FONT_ICON_TABLE_FOLDER, name);
+                let name = view_state.tables[idx].name.clone();
+                let name = format!("{} {}", NERD_FONT_ICON_TABLE, name);
 
                 let name_len = name.len();
                 let text = Line::styled(name, style);

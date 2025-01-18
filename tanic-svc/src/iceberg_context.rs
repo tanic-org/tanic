@@ -47,7 +47,11 @@ impl IcebergContext {
             .map(|ns| {
                 let parts = ns.inner();
                 let name = parts.clone().join(".");
-                NamespaceDeets { parts, name }
+                NamespaceDeets {
+                    parts,
+                    name,
+                    table_count: 1,
+                }
             })
             .collect::<Vec<_>>();
 

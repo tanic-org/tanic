@@ -11,6 +11,11 @@ pub enum TanicMessage {
     // Update of list of namespaces for current location
     ShowNamespaces(Vec<NamespaceDeets>),
 
+    ShowTablesForNamespace {
+        namespace: String,
+        tables: Vec<TableDeets>,
+    },
+
     NavigateUp,
 
     NavigateChildNamespace(String),
@@ -22,4 +27,12 @@ pub enum TanicMessage {
 pub struct NamespaceDeets {
     pub parts: Vec<String>,
     pub name: String,
+    pub table_count: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct TableDeets {
+    pub namespace: Vec<String>,
+    pub name: String,
+    pub row_count: usize,
 }
