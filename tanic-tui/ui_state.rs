@@ -27,4 +27,5 @@ pub(crate) struct ViewConnectionListState {
 
 pub(crate) struct ViewNamespaceTreeViewState {
     pub(crate) namespaces: Vec<NamespaceDeets>,
+    pub(crate) selected_idx: usize,
 }
