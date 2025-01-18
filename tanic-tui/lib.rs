@@ -1,4 +1,4 @@
-use crate::ui_state::{TanicUiState, ViewNamespaceTreeViewState};
+use crate::ui_state::{NamespaceTreeViewState, TableTreeViewState, TanicUiState};
 use crossterm::event::{self, Event, EventStream, KeyCode, KeyEvent, KeyEventKind};
 use futures::stream::StreamExt;
 use ratatui::{buffer::Buffer, layout::Rect, widgets::Widget, Frame};
@@ -12,7 +12,8 @@ use crate::connection_list::render_view_connection_list;
 use crate::connection_prompt::render_view_connection_prompt;
 use crate::initializing::render_view_initializing;
 use crate::namespace_tree_view::render_namespace_treeview;
-use tanic_core::message::NamespaceDeets;
+use crate::table_tree_view::render_table_treeview;
+use tanic_core::message::{NamespaceDeets, TableDeets};
 use tanic_core::Result;
 use tokio::sync::mpsc::{Receiver, Sender};
 
@@ -20,6 +21,7 @@ mod connection_list;
 mod connection_prompt;
 mod initializing;
 mod namespace_tree_view;
+mod table_tree_view;
 mod ui_state;
 
 pub struct TanicTui {
@@ -76,6 +78,9 @@ impl TanicTui {
             TanicMessage::Exit => self.exit(),
 
             TanicMessage::ShowNamespaces(namespaces) => self.show_namespaces(namespaces),
+            TanicMessage::ShowTablesForNamespace { namespace, tables } => {
+                self.show_tables_for_namespace(namespace, tables)
+            }
 
             _ => {}
         }
@@ -117,7 +122,7 @@ impl TanicTui {
     fn nav_left(&self) {
         let mut state = self.state.write().unwrap();
         match state.deref() {
-            TanicUiState::NamespaceTreeView(ViewNamespaceTreeViewState {
+            TanicUiState::NamespaceTreeView(NamespaceTreeViewState {
                 selected_idx,
                 namespaces,
             }) => {
@@ -127,7 +132,7 @@ impl TanicTui {
                     selected_idx - 1
                 };
 
-                *state = TanicUiState::NamespaceTreeView(ViewNamespaceTreeViewState {
+                *state = TanicUiState::NamespaceTreeView(NamespaceTreeViewState {
                     selected_idx,
                     namespaces: namespaces.clone(),
                 })
@@ -139,7 +144,7 @@ impl TanicTui {
     fn nav_right(&self) {
         let mut state = self.state.write().unwrap();
         match state.deref() {
-            TanicUiState::NamespaceTreeView(ViewNamespaceTreeViewState {
+            TanicUiState::NamespaceTreeView(NamespaceTreeViewState {
                 selected_idx,
                 namespaces,
             }) => {
@@ -149,7 +154,7 @@ impl TanicTui {
                     selected_idx + 1
                 };
 
-                *state = TanicUiState::NamespaceTreeView(ViewNamespaceTreeViewState {
+                *state = TanicUiState::NamespaceTreeView(NamespaceTreeViewState {
                     selected_idx,
                     namespaces: namespaces.clone(),
                 })
@@ -161,7 +166,7 @@ impl TanicTui {
     fn show_namespaces(&self, namespaces: Vec<NamespaceDeets>) {
         let mut state = self.state.write().unwrap();
 
-        let selected_idx = if let TanicUiState::NamespaceTreeView(ViewNamespaceTreeViewState {
+        let selected_idx = if let TanicUiState::NamespaceTreeView(NamespaceTreeViewState {
             selected_idx,
             ..
         }) = state.deref()
@@ -171,9 +176,28 @@ impl TanicTui {
             0
         };
 
-        *state = TanicUiState::NamespaceTreeView(ViewNamespaceTreeViewState {
+        *state = TanicUiState::NamespaceTreeView(NamespaceTreeViewState {
             namespaces,
             selected_idx,
+        });
+    }
+
+    fn show_tables_for_namespace(&self, namespace: String, tables: Vec<TableDeets>) {
+        let mut state = self.state.write().unwrap();
+
+        let selected_idx =
+            if let TanicUiState::TableTreeView(TableTreeViewState { selected_idx, .. }) =
+                state.deref()
+            {
+                *selected_idx
+            } else {
+                0
+            };
+
+        *state = TanicUiState::TableTreeView(TableTreeViewState {
+            namespace,
+            selected_idx,
+            tables,
         });
     }
 }
@@ -192,6 +216,9 @@ impl Widget for &TanicTui {
             }
             TanicUiState::NamespaceTreeView(view_state) => {
                 render_namespace_treeview(&view_state, area, buf)
+            }
+            TanicUiState::TableTreeView(view_state) => {
+                render_table_treeview(&view_state, area, buf)
             }
         }
     }
