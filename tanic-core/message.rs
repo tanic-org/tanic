@@ -9,7 +9,7 @@ pub enum TanicMessage {
     ConnectTo(ConnectionDetails),
 
     // Update of list of namespaces for current location
-    ShowNamespaces(Arc<RwLock<Vec<NamespaceDeets>>>),
+    ShowNamespaces(Vec<NamespaceDeets>),
 
     NavigateUp,
 

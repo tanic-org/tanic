@@ -1,6 +1,7 @@
 use crate::iceberg_context::IcebergContext;
 use http::Uri;
 use iceberg::NamespaceIdent;
+use std::ops::Deref;
 use std::sync::{Arc, RwLock};
 use tanic_core::config::ConnectionDetails;
 use tanic_core::message::TanicMessage;
@@ -68,15 +69,15 @@ impl TanicSvc {
 
     async fn connect_to(&mut self, conn_details: ConnectionDetails) -> Result<()> {
         let iceberg_context = IcebergContext::from_connection_details(&conn_details);
+        let namespaces = iceberg_context.populate_namespaces().await?;
 
-        let namespaces = iceberg_context.namespaces();
+        self.open_connections = vec![iceberg_context];
+
+        let namespaces = namespaces.read().unwrap().deref().clone();
+
         self.tx
             .send(TanicMessage::ShowNamespaces(namespaces))
             .await?;
-
-        iceberg_context.populate_namespaces().await;
-
-        self.open_connections = vec![iceberg_context];
 
         Ok(())
     }

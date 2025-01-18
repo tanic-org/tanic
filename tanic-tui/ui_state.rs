@@ -26,5 +26,5 @@ pub(crate) struct ViewConnectionListState {
 }
 
 pub(crate) struct ViewNamespaceTreeViewState {
-    pub(crate) namespaces: Arc<RwLock<Vec<NamespaceDeets>>>,
+    pub(crate) namespaces: Vec<NamespaceDeets>,
 }
