@@ -1,5 +1,6 @@
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::prelude::*;
 use tracing_subscriber::*;
 
 pub(crate) fn init() {
@@ -14,4 +15,11 @@ pub(crate) fn init() {
             .with(tracing_subscriber::fmt::layer().compact()), //  .pretty())
     )
     .expect("Unable to set global subscriber");
+}
+
+pub(crate) fn init_tui_logger() {
+    tracing_subscriber::registry()
+        .with(tui_logger::tracing_subscriber_layer())
+        .init();
+    tui_logger::init_logger(tui_logger::LevelFilter::Trace).unwrap();
 }
