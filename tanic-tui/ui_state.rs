@@ -56,10 +56,18 @@ impl NamespaceTreeViewState {
     }
 
     fn nav_left(&mut self) {
-        // TODO
+        self.selected_idx = if self.selected_idx == 0 {
+            self.namespaces.len() - 1
+        } else {
+            self.selected_idx - 1
+        };
     }
 
     fn nav_right(&mut self) {
-        // TODO
+        self.selected_idx = if self.selected_idx == self.namespaces.len() - 1 {
+            0
+        } else {
+            self.selected_idx + 1
+        };
     }
 }

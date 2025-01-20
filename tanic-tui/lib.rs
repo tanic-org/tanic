@@ -5,6 +5,9 @@ use ratatui::{buffer::Buffer, layout::Rect, widgets::Widget, Frame};
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
+use ratatui::layout::{Constraint, Layout};
+use ratatui::style::{Color, Style};
+use ratatui::widgets::Block;
 use tanic_core::TanicMessage;
 use tokio::sync::Mutex;
 
@@ -15,7 +18,10 @@ use crate::namespace_tree_view::render_namespace_treeview;
 use crate::table_tree_view::render_table_treeview;
 use tanic_core::message::{NamespaceDeets, TableDeets};
 use tanic_core::Result;
-use tokio::sync::mpsc::{Receiver, Sender};
+use tanic_svc::{TanicAction,TanicAppState};
+use tokio::sync::mpsc::{Receiver as MpscReceiver, Sender as MpscSender};
+use tokio::sync::watch::{Receiver as WatchReceiver, Sender as WatchSender};
+use tui_logger::{LevelFilter, TuiLoggerLevelOutput, TuiLoggerWidget, TuiWidgetState};
 
 mod connection_list;
 mod connection_prompt;
@@ -23,39 +29,51 @@ mod initializing;
 mod namespace_tree_view;
 mod table_tree_view;
 mod ui_state;
+mod ui_root;
+
+use ui_root::UiRoot;
 
 pub struct TanicTui {
-    should_exit: AtomicBool,
-    rx: Arc<Mutex<Receiver<TanicMessage>>>,
-    tx: Sender<TanicMessage>,
-    term_event_stream: Arc<Mutex<EventStream>>,
-    state: Arc<RwLock<TanicUiState>>,
+    action_tx: MpscSender<TanicAction>,
 }
 
 impl TanicTui {
-    pub async fn start(rx: Receiver<TanicMessage>, tx: Sender<TanicMessage>) -> Result<()> {
-        TanicTui::new(rx, tx).event_loop().await
-    }
-
-    fn new(rx: Receiver<TanicMessage>, tx: Sender<TanicMessage>) -> Self {
+    pub fn new(action_tx: MpscSender<TanicAction>) -> Self {
         Self {
-            should_exit: AtomicBool::new(false),
-            rx: Arc::new(Mutex::new(rx)),
-            tx,
-            term_event_stream: Arc::new(Mutex::new(EventStream::new())),
-            state: Arc::new(RwLock::new(TanicUiState::Initializing)),
+            action_tx,
         }
     }
 
-    async fn event_loop(&self) -> Result<()> {
+    async fn event_loop(
+        self,
+        mut state_rx: WatchReceiver<TanicAppState>,
+    ) -> Result<()> {
         let mut terminal = ratatui::init();
+        let mut term_event_stream = EventStream::new();
+        let mut state = TanicAppState::Initializing;
+        let mut ui = {
+            UiRoot::new(&state)
+        };
 
-        while !self.should_exit.load(Ordering::Relaxed) {
-            terminal.draw(|frame| self.draw(frame))?;
+        while !matches!(&state, TanicAppState::Exiting) {
+            terminal.draw(|frame| self.draw(frame, &ui))?;
 
             tokio::select! {
-                _ = self.handle_terminal_events() => {},
-                _ = self.handle_tanic_events() => {},
+                // Catch and handle crossterm events
+                maybe_event = term_event_stream.next() => match maybe_event {
+                    Some(Ok(Event::Key(key)))  => {
+                        if let Some(action) = ui.handle_key_event(key) {
+                            self.action_tx.send(action).await?;
+                        }
+                    },
+                    None => break,
+                    _ => (),
+                },
+
+                // Handle state updates
+                Some(new_state) = state_rx.next() => {
+                    state = new_state;
+                },
             }
         }
 
@@ -63,163 +81,117 @@ impl TanicTui {
         Ok(())
     }
 
-    fn draw(&self, frame: &mut Frame) {
+    fn draw(&self, frame: &mut Frame, ui: &UiRoot) {
         frame.render_widget(self, frame.area());
     }
 
-    async fn handle_tanic_events(&self) -> Result<()> {
-        let mut rx = self.rx.lock().await;
-        let Some(message) = rx.recv().await else {
-            return Ok(());
-        };
-        tracing::info!(?message, "tui received a tanic message");
+    // fn nav_left(&self) {
+    //     let mut state = self.state.write().unwrap();
+    //     match state.deref() {
+    //         TanicUiState::NamespaceTreeView(NamespaceTreeViewState {
+    //             selected_idx,
+    //             namespaces,
+    //         }) => {
+    //             let selected_idx = if *selected_idx == 0 {
+    //                 namespaces.len() - 1
+    //             } else {
+    //                 selected_idx - 1
+    //             };
+    //
+    //             *state = TanicUiState::NamespaceTreeView(NamespaceTreeViewState {
+    //                 selected_idx,
+    //                 namespaces: namespaces.clone(),
+    //             })
+    //         }
+    //         _ => {}
+    //     }
+    // }
+    //
+    // fn nav_right(&self) {
+    //     let mut state = self.state.write().unwrap();
+    //     match state.deref() {
+    //         TanicUiState::NamespaceTreeView(NamespaceTreeViewState {
+    //             selected_idx,
+    //             namespaces,
+    //         }) => {
+    //             let selected_idx = if *selected_idx == namespaces.len() - 1 {
+    //                 0
+    //             } else {
+    //                 selected_idx + 1
+    //             };
+    //
+    //             *state = TanicUiState::NamespaceTreeView(NamespaceTreeViewState {
+    //                 selected_idx,
+    //                 namespaces: namespaces.clone(),
+    //             })
+    //         }
+    //         _ => {}
+    //     }
+    // }
+    //
+    // fn show_namespaces(&self, namespaces: Vec<NamespaceDeets>) {
+    //     let mut state = self.state.write().unwrap();
+    //
+    //     let selected_idx = if let TanicUiState::NamespaceTreeView(NamespaceTreeViewState {
+    //         selected_idx,
+    //         ..
+    //     }) = state.deref()
+    //     {
+    //         *selected_idx
+    //     } else {
+    //         0
+    //     };
+    //
+    //     *state = TanicUiState::NamespaceTreeView(NamespaceTreeViewState {
+    //         namespaces,
+    //         selected_idx,
+    //     });
+    // }
+    //
+    // fn show_tables_for_namespace(&self, namespace: String, tables: Vec<TableDeets>) {
+    //     let mut state = self.state.write().unwrap();
+    //
+    //     let selected_idx =
+    //         if let TanicUiState::TableTreeView(TableTreeViewState { selected_idx, .. }) =
+    //             state.deref()
+    //         {
+    //             *selected_idx
+    //         } else {
+    //             0
+    //         };
+    //
+    //     *state = TanicUiState::TableTreeView(TableTreeViewState {
+    //         namespace,
+    //         selected_idx,
+    //         tables,
+    //     });
+    // }
+}
 
-        match message {
-            TanicMessage::Exit => self.exit(),
+struct NamespaceListView<'a> {
+    state: &'a TanicAppState,
+}
 
-            TanicMessage::ShowNamespaces(namespaces) => self.show_namespaces(namespaces),
-            TanicMessage::ShowTablesForNamespace { namespace, tables } => {
-                self.show_tables_for_namespace(namespace, tables)
-            }
-
-            _ => {}
+impl NamespaceListView {
+    fn new(state: &TanicAppState) -> Self {
+        Self {
+            state,
         }
-
-        Ok(())
     }
 
-    async fn handle_terminal_events(&self) -> Result<()> {
-        let mut term_event_stream = self.term_event_stream.lock().await;
-        let Some(Ok(message)) = term_event_stream.next().await else {
-            unreachable!();
-        };
-
-        match message {
-            // it's important to check that the event is a key press event as
-            // crossterm also emits key release and repeat events on Windows.
-            Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
-                self.handle_key_event(key_event)
-            }
-            _ => {}
-        };
-
-        Ok(())
-    }
-
-    fn handle_key_event(&self, key_event: KeyEvent) {
+    fn handle_key_event(&self, key_event: KeyEvent) -> Option<TanicAction> {
         match key_event.code {
-            KeyCode::Char('q') => self.exit(),
-            KeyCode::Left => self.nav_left(),
-            KeyCode::Right => self.nav_right(),
-            _ => {}
-        }
-    }
-
-    fn exit(&self) {
-        self.should_exit.store(true, Ordering::Relaxed)
-    }
-
-    fn nav_left(&self) {
-        let mut state = self.state.write().unwrap();
-        match state.deref() {
-            TanicUiState::NamespaceTreeView(NamespaceTreeViewState {
-                selected_idx,
-                namespaces,
-            }) => {
-                let selected_idx = if *selected_idx == 0 {
-                    namespaces.len() - 1
-                } else {
-                    selected_idx - 1
-                };
-
-                *state = TanicUiState::NamespaceTreeView(NamespaceTreeViewState {
-                    selected_idx,
-                    namespaces: namespaces.clone(),
-                })
-            }
-            _ => {}
-        }
-    }
-
-    fn nav_right(&self) {
-        let mut state = self.state.write().unwrap();
-        match state.deref() {
-            TanicUiState::NamespaceTreeView(NamespaceTreeViewState {
-                selected_idx,
-                namespaces,
-            }) => {
-                let selected_idx = if *selected_idx == namespaces.len() - 1 {
-                    0
-                } else {
-                    selected_idx + 1
-                };
-
-                *state = TanicUiState::NamespaceTreeView(NamespaceTreeViewState {
-                    selected_idx,
-                    namespaces: namespaces.clone(),
-                })
-            }
-            _ => {}
-        }
-    }
-
-    fn show_namespaces(&self, namespaces: Vec<NamespaceDeets>) {
-        let mut state = self.state.write().unwrap();
-
-        let selected_idx = if let TanicUiState::NamespaceTreeView(NamespaceTreeViewState {
-            selected_idx,
-            ..
-        }) = state.deref()
-        {
-            *selected_idx
-        } else {
-            0
-        };
-
-        *state = TanicUiState::NamespaceTreeView(NamespaceTreeViewState {
-            namespaces,
-            selected_idx,
-        });
-    }
-
-    fn show_tables_for_namespace(&self, namespace: String, tables: Vec<TableDeets>) {
-        let mut state = self.state.write().unwrap();
-
-        let selected_idx =
-            if let TanicUiState::TableTreeView(TableTreeViewState { selected_idx, .. }) =
-                state.deref()
-            {
-                *selected_idx
-            } else {
-                0
-            };
-
-        *state = TanicUiState::TableTreeView(TableTreeViewState {
-            namespace,
-            selected_idx,
-            tables,
-        });
-    }
-}
-
-impl Widget for &TanicTui {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        let state = self.state.read().unwrap();
-
-        match state.deref() {
-            TanicUiState::Initializing => render_view_initializing(area, buf),
-            TanicUiState::ConnectionPrompt(view_state) => {
-                render_view_connection_prompt(&view_state, area, buf)
-            }
-            TanicUiState::ConnectionList(view_state) => {
-                render_view_connection_list(&view_state, area, buf)
-            }
-            TanicUiState::NamespaceTreeView(view_state) => {
-                render_namespace_treeview(&view_state, area, buf)
-            }
-            TanicUiState::TableTreeView(view_state) => {
-                render_table_treeview(&view_state, area, buf)
-            }
+            KeyCode::Left => {
+                Some(TanicAction::FocusPrevNamespace)
+            },
+            KeyCode::Right => {
+                Some(TanicAction::FocusNextNamespace)
+            },
+            KeyCode::Enter => {
+                Some(TanicAction::SelectNamespace)
+            },
+            _ => None
         }
     }
 }
+
