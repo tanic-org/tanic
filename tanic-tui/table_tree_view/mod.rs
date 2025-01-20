@@ -1,103 +1,107 @@
-use crate::ui_state::{NamespaceTreeViewState, TableTreeViewState};
-use ratatui::prelude::Stylize;
+use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::prelude::*;
 use ratatui::widgets::canvas::{Canvas, Rectangle};
 use ratatui::widgets::Block;
 use treemap::{MapItem, Mappable, Rect as TreeMapRect, TreemapLayout};
 
-use tui_logger::{LevelFilter, TuiLoggerLevelOutput, TuiLoggerWidget, TuiWidgetState};
+use tanic_svc::{TanicAction, TanicAppState};
 
 // find more at https://www.nerdfonts.com/cheat-sheet
 const NERD_FONT_ICON_TABLE_FOLDER: &str = "\u{f12e4}"; // 󱋤
 const NERD_FONT_ICON_TABLE: &str = "\u{ebb7}"; // 
 
-pub(crate) struct TableTreeviewState {
-    items: Vec<TableTreeviewItem>,
-    selected: Option<usize>,
+struct TableListView<'a> {
+    state: &'a TanicAppState,
 }
 
-pub(crate) struct TableTreeviewItem {
-    name: String,
-    size: usize,
+impl TableListView {
+    fn new(state: &TanicAppState) -> Self {
+        Self {
+            state,
+        }
+    }
+
+    fn handle_key_event(&self, key_event: KeyEvent) -> Option<TanicAction> {
+        match key_event.code {
+            KeyCode::Left => {
+                Some(TanicAction::FocusPrevTable)
+            },
+            KeyCode::Right => {
+                Some(TanicAction::FocusNextTable)
+            },
+            KeyCode::Enter => {
+                Some(TanicAction::SelectTable)
+            },
+            _ => None
+        }
+    }
 }
 
-pub(crate) fn render_table_treeview(view_state: &TableTreeViewState, area: Rect, buf: &mut Buffer) {
-    let [top, bottom] = Layout::vertical([Constraint::Fill(1), Constraint::Max(6)]).areas(area);
+impl Widget for TableListView {
+    fn render(&self, area: Rect, buf: &mut Buffer) {
+        let mut layout = TreemapLayout::new();
+        let bounds = TreeMapRect::from_points(
+            area.x as f64,
+            area.y as f64,
+            area.width as f64,
+            area.height as f64,
+        );
 
-    let filter_state = TuiWidgetState::new()
-        .set_default_display_level(LevelFilter::Info)
-        .set_level_for_target("tanic_svc", LevelFilter::Debug);
+        let TanicAppState::ViewingTablesList(view_state) = self.state else {
+            panic!();
+        };
 
-    TuiLoggerWidget::default()
-        .block(Block::bordered().title("Log"))
-        .output_separator('|')
-        .output_timestamp(Some("%F %H:%M:%S%.3f".to_string()))
-        .output_level(Some(TuiLoggerLevelOutput::Long))
-        .output_target(false)
-        .output_file(false)
-        .output_line(false)
-        .style(Style::default().fg(Color::White))
-        .state(&filter_state)
-        .render(bottom, buf);
+        let mut items: Vec<Box<dyn Mappable>> = view_state
+            .tables
+            .iter()
+            .map(|table| {
+                let res: Box<dyn Mappable> = Box::new(MapItem::with_size(table.row_count as f64));
+                res
+            })
+            .collect::<Vec<_>>();
 
-    let mut layout = TreemapLayout::new();
-    let bounds = TreeMapRect::from_points(
-        top.x as f64,
-        top.y as f64,
-        top.width as f64,
-        top.height as f64,
-    );
+        layout.layout_items(&mut items, bounds);
 
-    let mut items: Vec<Box<dyn Mappable>> = view_state
-        .tables
-        .iter()
-        .map(|table| {
-            let res: Box<dyn Mappable> = Box::new(MapItem::with_size(table.row_count as f64));
-            res
-        })
-        .collect::<Vec<_>>();
+        let selected_idx = view_state.selected_idx;
 
-    layout.layout_items(&mut items, bounds);
+        let canvas = Canvas::default()
+            .block(Block::bordered().title(format!(" Tanic //// {} Namespace ", view_state.namespace)))
+            .x_bounds([area.x as f64, (area.x + area.width) as f64])
+            .y_bounds([area.y as f64, (area.y + area.height) as f64])
+            .paint(|ctx| {
+                for (idx, item) in items.iter().enumerate() {
+                    let item_bounds = item.bounds();
 
-    let selected_idx = view_state.selected_idx;
+                    let rect = Rectangle {
+                        x: item_bounds.x,
+                        y: item_bounds.y,
+                        width: item_bounds.w,
+                        height: item_bounds.h,
+                        color: Color::White,
+                    };
 
-    let canvas = Canvas::default()
-        .block(Block::bordered().title(format!(" Tanic //// {} Namespace ", view_state.namespace)))
-        .x_bounds([top.x as f64, (top.x + top.width) as f64])
-        .y_bounds([top.y as f64, (top.y + top.height) as f64])
-        .paint(|ctx| {
-            for (idx, item) in items.iter().enumerate() {
-                let item_bounds = item.bounds();
+                    ctx.draw(&rect);
 
-                let rect = Rectangle {
-                    x: item_bounds.x,
-                    y: item_bounds.y,
-                    width: item_bounds.w,
-                    height: item_bounds.h,
-                    color: Color::White,
-                };
+                    let style = if idx == selected_idx {
+                        Style::new().black().bold().on_white()
+                    } else {
+                        Style::new().white()
+                    };
 
-                ctx.draw(&rect);
+                    let name = view_state.tables[idx].name.clone();
+                    let name = format!("{} {}", NERD_FONT_ICON_TABLE, name);
 
-                let style = if idx == selected_idx {
-                    Style::new().black().bold().on_white()
-                } else {
-                    Style::new().white()
-                };
+                    let name_len = name.len();
+                    let text = Line::styled(name, style);
 
-                let name = view_state.tables[idx].name.clone();
-                let name = format!("{} {}", NERD_FONT_ICON_TABLE, name);
+                    ctx.print(
+                        item_bounds.x + (item_bounds.w * 0.5) - (name_len as f64 * 0.5),
+                        item_bounds.y + (item_bounds.h * 0.5),
+                        text,
+                    );
+                }
+            });
 
-                let name_len = name.len();
-                let text = Line::styled(name, style);
-
-                ctx.print(
-                    item_bounds.x + (item_bounds.w * 0.5) - (name_len as f64 * 0.5),
-                    item_bounds.y + (item_bounds.h * 0.5),
-                    text,
-                );
-            }
-        });
-
-    canvas.render(top, buf);
+        canvas.render(area, buf);
+    }
 }

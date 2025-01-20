@@ -20,6 +20,7 @@ path = "lib.rs"
 
 [dependencies]
 tanic-core = { path = "../tanic-core" }
+tanic-svc = { path = "../tanic-svc" }
 
 crossterm = { version = "0.28", features = ["event-stream"] }
 ratatui = "0.29"
