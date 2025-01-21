@@ -1,6 +1,6 @@
 //! Iceberg Context
 
-use iceberg::Catalog;
+use iceberg::{Catalog, NamespaceIdent};
 use iceberg_catalog_rest::{RestCatalog, RestCatalogConfig};
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
@@ -8,10 +8,10 @@ use tokio::sync::watch::Receiver;
 use tokio_stream::{wrappers::WatchStream, StreamExt};
 
 use tanic_core::config::ConnectionDetails;
-use tanic_core::message::NamespaceDeets;
+use tanic_core::message::{NamespaceDeets, TableDeets};
 use tanic_core::{Result, TanicError};
 
-use crate::state::{TanicAction, TanicAppState};
+use crate::state::{TanicAction, TanicAppState, ViewingNamespacesListState};
 
 #[derive(Debug)]
 enum Connection {
@@ -27,6 +27,7 @@ struct IcebergContext {
     catalog: Option<Arc<dyn Catalog>>,
 
     namespaces: Vec<NamespaceDeets>,
+    tables: Vec<TableDeets>,
 }
 
 /// Iceberg Context
@@ -86,7 +87,22 @@ impl IcebergContextManager {
                     }
                 }
                 TanicAppState::ViewingNamespacesList(_) => {}
-                TanicAppState::ViewingTablesList(_) => {}
+                TanicAppState::RetrievingTableList(ViewingNamespacesListState {
+                    namespaces,
+                    selected_idx,
+                }) => {
+                    let namespace = &namespaces[selected_idx];
+                    if let Connection::Connected(ref mut iceberg_ctx) = &mut connection {
+                        iceberg_ctx.populate_table_list(&namespace.parts).await?;
+
+                        self.action_tx
+                            .send(TanicAction::RetrievedTableList(
+                                namespace.clone(),
+                                iceberg_ctx.tables.clone(),
+                            ))
+                            .map_err(|err| TanicError::UnexpectedError(err.to_string()))?;
+                    }
+                }
                 TanicAppState::Exiting => {
                     break;
                 }
@@ -112,6 +128,7 @@ impl IcebergContext {
         Self {
             connection_details,
             namespaces: vec![],
+            tables: vec![],
             catalog: Some(Arc::new(rest_catalog)),
         }
     }
@@ -137,6 +154,29 @@ impl IcebergContext {
             .collect::<Vec<_>>();
 
         self.namespaces = namespaces;
+
+        Ok(())
+    }
+
+    pub async fn populate_table_list(&mut self, namespace_parts: &Vec<String>) -> Result<()> {
+        let Some(ref catalog) = self.catalog else {
+            panic!();
+        };
+
+        let tables = catalog
+            .list_tables(&NamespaceIdent::from_strs(namespace_parts)?)
+            .await?;
+
+        let table_names = tables
+            .into_iter()
+            .map(|ti| TableDeets {
+                namespace: namespace_parts.clone(),
+                name: ti.name().to_string(),
+                row_count: 1,
+            })
+            .collect::<Vec<_>>();
+
+        self.tables = table_names;
 
         Ok(())
     }
