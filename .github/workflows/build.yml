@@ -68,7 +68,7 @@ jobs:
       - uses: LoliGothick/clippy-check@master
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          options: --features=serde,rkyv,test_utils --no-deps
+          options: --no-deps
           name: Clippy (stable)
 
       - name: Check Rustdoc Links
