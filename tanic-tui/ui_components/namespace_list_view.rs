@@ -8,38 +8,29 @@ use tanic_svc::{TanicAction, TanicAppState};
 
 // find more at https://www.nerdfonts.com/cheat-sheet
 const NERD_FONT_ICON_TABLE_FOLDER: &str = "\u{f12e4}"; // 󱋤
-const NERD_FONT_ICON_TABLE: &str = "\u{ebb7}"; // 
 
-struct TableListView<'a> {
+pub(crate) struct NamespaceListView<'a> {
     state: &'a TanicAppState,
 }
 
-impl TableListView {
-    fn new(state: &TanicAppState) -> Self {
-        Self {
-            state,
-        }
+impl<'a> NamespaceListView<'a> {
+    pub(crate) fn new(state: &'a TanicAppState) -> Self {
+        Self { state }
     }
 
-    fn handle_key_event(&self, key_event: KeyEvent) -> Option<TanicAction> {
+    pub(crate) fn handle_key_event(&self, key_event: KeyEvent) -> Option<TanicAction> {
         match key_event.code {
-            KeyCode::Left => {
-                Some(TanicAction::FocusPrevTable)
-            },
-            KeyCode::Right => {
-                Some(TanicAction::FocusNextTable)
-            },
-            KeyCode::Enter => {
-                Some(TanicAction::SelectTable)
-            },
-            _ => None
+            KeyCode::Left => Some(TanicAction::FocusPrevNamespace),
+            KeyCode::Right => Some(TanicAction::FocusNextNamespace),
+            KeyCode::Enter => Some(TanicAction::SelectNamespace),
+            _ => None,
         }
     }
 }
 
-impl Widget for TableListView {
-    fn render(&self, area: Rect, buf: &mut Buffer) {
-        let mut layout = TreemapLayout::new();
+impl Widget for &NamespaceListView<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let layout = TreemapLayout::new();
         let bounds = TreeMapRect::from_points(
             area.x as f64,
             area.y as f64,
@@ -47,15 +38,16 @@ impl Widget for TableListView {
             area.height as f64,
         );
 
-        let TanicAppState::ViewingTablesList(view_state) = self.state else {
+        let TanicAppState::ViewingNamespacesList(view_state) = self.state else {
             panic!();
         };
 
         let mut items: Vec<Box<dyn Mappable>> = view_state
-            .tables
+            .namespaces
             .iter()
-            .map(|table| {
-                let res: Box<dyn Mappable> = Box::new(MapItem::with_size(table.row_count as f64));
+            .map(|namespace| {
+                let res: Box<dyn Mappable> =
+                    Box::new(MapItem::with_size(namespace.table_count as f64));
                 res
             })
             .collect::<Vec<_>>();
@@ -65,7 +57,7 @@ impl Widget for TableListView {
         let selected_idx = view_state.selected_idx;
 
         let canvas = Canvas::default()
-            .block(Block::bordered().title(format!(" Tanic //// {} Namespace ", view_state.namespace)))
+            .block(Block::bordered().title(" Tanic //// Root Namespaces"))
             .x_bounds([area.x as f64, (area.x + area.width) as f64])
             .y_bounds([area.y as f64, (area.y + area.height) as f64])
             .paint(|ctx| {
@@ -88,8 +80,12 @@ impl Widget for TableListView {
                         Style::new().white()
                     };
 
-                    let name = view_state.tables[idx].name.clone();
-                    let name = format!("{} {}", NERD_FONT_ICON_TABLE, name);
+                    let ns = &view_state.namespaces[idx];
+                    let name = ns.name.clone();
+                    let name = format!(
+                        "{} {} ({} tables)",
+                        NERD_FONT_ICON_TABLE_FOLDER, name, ns.table_count
+                    );
 
                     let name_len = name.len();
                     let text = Line::styled(name, style);

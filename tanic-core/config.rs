@@ -40,18 +40,10 @@ impl ConnectionDetails {
 /// persistable user config.
 ///
 /// Loaded in at application startup from $CONFIG/tanic/tanic.toml
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct TanicConfig {
     /// list of known connections
     pub library: Vec<ConnectionDetails>,
-}
-
-impl Default for TanicConfig {
-    fn default() -> TanicConfig {
-        TanicConfig {
-            library: Vec::new(),
-        }
-    }
 }
 
 impl TanicConfig {

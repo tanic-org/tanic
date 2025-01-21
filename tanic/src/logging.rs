@@ -3,6 +3,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::*;
 
+#[allow(unused)]
 pub(crate) fn init() {
     tracing::subscriber::set_global_default(
         Registry::default()
