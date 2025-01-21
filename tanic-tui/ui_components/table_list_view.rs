@@ -23,6 +23,7 @@ impl<'a> TableListView<'a> {
             KeyCode::Left => Some(TanicAction::FocusPrevTable),
             KeyCode::Right => Some(TanicAction::FocusNextTable),
             KeyCode::Enter => Some(TanicAction::SelectTable),
+            KeyCode::Esc => Some(TanicAction::LeaveNamespace),
             _ => None,
         }
     }
@@ -56,9 +57,10 @@ impl Widget for &TableListView<'_> {
         let selected_idx = view_state.selected_idx;
 
         let canvas = Canvas::default()
-            .block(
-                Block::bordered().title(format!(" Tanic //// {} Namespace ", view_state.namespace)),
-            )
+            .block(Block::bordered().title(format!(
+                " Tanic //// {} Namespace ",
+                view_state.namespace.name
+            )))
             .x_bounds([area.x as f64, (area.x + area.width) as f64])
             .y_bounds([area.y as f64, (area.y + area.height) as f64])
             .paint(|ctx| {
