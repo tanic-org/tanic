@@ -1,5 +1,5 @@
-use tanic_core::Result;
 use tanic_core::TanicConfig;
+use tanic_core::{Result, TanicError};
 use tokio::sync::mpsc::{UnboundedReceiver as MpscReceiver, UnboundedSender as MpscSender};
 use tokio::sync::watch::{Receiver as WatchReceiver, Sender as WatchSender};
 
@@ -56,10 +56,9 @@ impl AppStateManager {
             let next_state = state.reduce(action);
 
             state = next_state;
-            state_tx.send(state.clone()).unwrap();
-            // if let Some(action) = action {
-            //     let _ = action_tx.send(action).await?;
-            // }
+            state_tx
+                .send(state.clone())
+                .map_err(|err| TanicError::UnexpectedError(err.to_string()))?;
         }
 
         Ok(())

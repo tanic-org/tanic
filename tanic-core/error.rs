@@ -1,6 +1,7 @@
 //! Tanic Error Module
 
 use figment::Error as FigmentError;
+use iceberg::Error as IcebergError;
 use miette::Result as MietteResult;
 use std::io::Error as StdIoError;
 use thiserror::Error;
@@ -14,12 +15,15 @@ pub type Result<T> = MietteResult<T, TanicError>;
 #[allow(missing_docs)]
 #[derive(Error, Debug)]
 pub enum TanicError {
-    #[error("config parse error")]
+    #[error("Config Parse Error")]
     Figment(#[from] FigmentError),
 
-    #[error("io error")]
+    #[error("IO Error")]
     IoError(#[from] StdIoError),
-    // TODO: update with new arch send/receive errors
-    // #[error("message send error")]
-    // MpscSendError(#[from] SendError<TanicMessage>),
+
+    #[error("Iceberg Error")]
+    IcebergError(#[from] IcebergError),
+
+    #[error("Unexpected")]
+    UnexpectedError(String),
 }

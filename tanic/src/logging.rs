@@ -22,5 +22,5 @@ pub(crate) fn init_tui_logger() {
     tracing_subscriber::registry()
         .with(tui_logger::tracing_subscriber_layer())
         .init();
-    tui_logger::init_logger(tui_logger::LevelFilter::Trace).unwrap();
+    tui_logger::init_logger(tui_logger::LevelFilter::Trace).expect("Could not initialize logger");
 }

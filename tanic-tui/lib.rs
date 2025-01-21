@@ -5,7 +5,7 @@ use tokio::sync::watch::Receiver as WatchReceiver;
 use tokio_stream::{wrappers::WatchStream, StreamExt};
 
 use crate::ui_components::app_container::AppContainer;
-use tanic_core::Result;
+use tanic_core::{Result, TanicError};
 use tanic_svc::{TanicAction, TanicAppState};
 
 mod ui_components;
@@ -35,7 +35,10 @@ impl TanicTui {
                 maybe_event = term_event_stream.next() => match maybe_event {
                     Some(Ok(Event::Key(key)))  => {
                         if let Some(action) = ui.handle_key_event(key) {
-                            self.action_tx.send(action).unwrap();
+                            self.action_tx.send(action)
+                                .map_err(|err| TanicError::UnexpectedError(
+                                      err.to_string()
+                                ))?;
                         }
                     },
                     None => break,

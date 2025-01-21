@@ -9,7 +9,7 @@ use tokio_stream::{wrappers::WatchStream, StreamExt};
 
 use tanic_core::config::ConnectionDetails;
 use tanic_core::message::NamespaceDeets;
-use tanic_core::Result;
+use tanic_core::{Result, TanicError};
 
 use crate::state::{TanicAction, TanicAppState};
 
@@ -59,7 +59,7 @@ impl IcebergContextManager {
                                 .send(TanicAction::RetrievedNamespaceList(
                                     context.namespaces.clone(),
                                 ))
-                                .expect("could not send action");
+                                .map_err(|err| TanicError::UnexpectedError(err.to_string()))?;
 
                             connection = Connection::Connected(context);
                         }
@@ -79,7 +79,7 @@ impl IcebergContextManager {
                                 .send(TanicAction::RetrievedNamespaceList(
                                     context.namespaces.clone(),
                                 ))
-                                .expect("could not send action");
+                                .map_err(|err| TanicError::UnexpectedError(err.to_string()))?;
 
                             connection = Connection::Connected(context);
                         }
@@ -121,7 +121,7 @@ impl IcebergContext {
             panic!();
         };
 
-        let root_namespaces = catalog.list_namespaces(None).await.unwrap();
+        let root_namespaces = catalog.list_namespaces(None).await?;
 
         let namespaces = root_namespaces
             .into_iter()
