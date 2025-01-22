@@ -8,6 +8,7 @@ use crate::ui_components::app_container::AppContainer;
 use tanic_core::{Result, TanicError};
 use tanic_svc::{TanicAction, TanicAppState};
 
+mod component;
 mod ui_components;
 
 pub struct TanicTui {

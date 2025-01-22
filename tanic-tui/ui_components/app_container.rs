@@ -1,3 +1,4 @@
+use crate::component::Component;
 use crate::ui_components::{
     namespace_list_view::NamespaceListView, splash_screen::SplashScreen,
     table_list_view::TableListView,
@@ -39,10 +40,10 @@ impl<'a> AppContainer<'a> {
             }
             key_event => match &self.state {
                 TanicAppState::ViewingNamespacesList(_) => {
-                    self.namespace_list_view.handle_key_event(key_event)
+                    (&self.namespace_list_view).handle_key_event(key_event)
                 }
                 TanicAppState::ViewingTablesList(_) => {
-                    self.table_list_view.handle_key_event(key_event)
+                    (&self.table_list_view).handle_key_event(key_event)
                 }
                 _ => None,
             },
@@ -72,8 +73,8 @@ impl Widget for &AppContainer<'_> {
 
         match &self.state {
             TanicAppState::Initializing => self.splash_screen.render(top, buf),
-            TanicAppState::ViewingNamespacesList(_) => self.namespace_list_view.render(top, buf),
-            TanicAppState::ViewingTablesList(_) => self.table_list_view.render(top, buf),
+            TanicAppState::ViewingNamespacesList(_) => (&self.namespace_list_view).render(top, buf),
+            TanicAppState::ViewingTablesList(_) => (&self.table_list_view).render(top, buf),
             TanicAppState::Exiting => {}
             _ => {}
         }
