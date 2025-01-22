@@ -9,6 +9,9 @@ concurrency:
 env:
   LATEST_STABLE_RUST_VERSION: "TBD"
 
+permissions:
+  checks: write
+
 jobs:
   format:
     name: Formatting
