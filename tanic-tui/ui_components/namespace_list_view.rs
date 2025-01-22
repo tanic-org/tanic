@@ -47,7 +47,7 @@ impl Widget for &NamespaceListView<'_> {
             .iter()
             .map(|namespace| {
                 let res: Box<dyn Mappable> =
-                    Box::new(MapItem::with_size(namespace.table_count as f64));
+                    Box::new(MapItem::with_size(namespace.table_count.max(1) as f64));
                 res
             })
             .collect::<Vec<_>>();
@@ -74,7 +74,7 @@ impl Widget for &NamespaceListView<'_> {
 
                     ctx.draw(&rect);
 
-                    let style = if idx == selected_idx {
+                    let style = if Some(idx) == selected_idx {
                         Style::new().black().bold().on_white()
                     } else {
                         Style::new().white()
@@ -82,9 +82,10 @@ impl Widget for &NamespaceListView<'_> {
 
                     let ns = &view_state.namespaces[idx];
                     let name = ns.name.clone();
+                    let plural_suffix = if ns.table_count == 1 { "" } else { "s" };
                     let name = format!(
-                        "{} {} ({} tables)",
-                        NERD_FONT_ICON_TABLE_FOLDER, name, ns.table_count
+                        "{} {} ({} table{})",
+                        NERD_FONT_ICON_TABLE_FOLDER, name, ns.table_count, plural_suffix
                     );
 
                     let name_len = name.len();
