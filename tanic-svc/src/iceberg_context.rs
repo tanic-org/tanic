@@ -91,6 +91,9 @@ impl IcebergContextManager {
                     namespaces,
                     selected_idx,
                 }) => {
+                    let Some(selected_idx) = selected_idx else {
+                        continue;
+                    };
                     let namespace = &namespaces[selected_idx];
                     if let Connection::Connected(ref mut iceberg_ctx) = &mut connection {
                         iceberg_ctx.populate_table_list(&namespace.parts).await?;
@@ -148,7 +151,7 @@ impl IcebergContext {
                 NamespaceDeets {
                     parts,
                     name,
-                    table_count: 1,
+                    table_count: 0,
                 }
             })
             .collect::<Vec<_>>();

@@ -34,7 +34,7 @@ pub enum TanicAppState {
 #[derive(Clone, Debug)]
 pub struct ViewingNamespacesListState {
     pub namespaces: Vec<NamespaceDeets>,
-    pub selected_idx: usize,
+    pub selected_idx: Option<usize>,
 }
 
 #[derive(Clone, Debug)]
@@ -42,7 +42,7 @@ pub struct ViewingTablesListState {
     pub namespaces: ViewingNamespacesListState,
     pub namespace: NamespaceDeets,
     pub tables: Vec<TableDeets>,
-    pub selected_idx: usize,
+    pub selected_idx: Option<usize>,
 }
 
 impl TanicAppState {
@@ -53,9 +53,11 @@ impl TanicAppState {
             (TanicAction::ConnectTo(conn_details), _) => TanicAppState::ConnectingTo(conn_details),
 
             (TanicAction::RetrievedNamespaceList(namespaces), _) => {
+                let selected_idx = if namespaces.is_empty() { None } else { Some(0) };
+
                 TanicAppState::ViewingNamespacesList(ViewingNamespacesListState {
                     namespaces,
-                    selected_idx: 0,
+                    selected_idx,
                 })
             }
 
@@ -66,11 +68,13 @@ impl TanicAppState {
                     selected_idx,
                 }),
             ) => {
-                let selected_idx = if *selected_idx == 0 {
-                    namespaces.len() - 1
-                } else {
-                    *selected_idx - 1
-                };
+                let selected_idx = selected_idx.map(|selected_idx| {
+                    if selected_idx == 0 {
+                        namespaces.len() - 1
+                    } else {
+                        selected_idx - 1
+                    }
+                });
 
                 TanicAppState::ViewingNamespacesList(ViewingNamespacesListState {
                     namespaces: namespaces.clone(),
@@ -85,11 +89,13 @@ impl TanicAppState {
                     selected_idx,
                 }),
             ) => {
-                let selected_idx = if *selected_idx == namespaces.len() - 1 {
-                    0
-                } else {
-                    *selected_idx + 1
-                };
+                let selected_idx = selected_idx.map(|selected_idx| {
+                    if selected_idx == namespaces.len() - 1 {
+                        0
+                    } else {
+                        selected_idx + 1
+                    }
+                });
 
                 TanicAppState::ViewingNamespacesList(ViewingNamespacesListState {
                     namespaces: namespaces.clone(),
@@ -111,18 +117,22 @@ impl TanicAppState {
             (
                 TanicAction::RetrievedTableList(namespace, tables),
                 TanicAppState::RetrievingTableList(ViewingNamespacesListState {
-                    selected_idx,
+                    selected_idx: namespace_selected_idx,
                     namespaces,
                 }),
-            ) => TanicAppState::ViewingTablesList(ViewingTablesListState {
-                namespaces: ViewingNamespacesListState {
-                    selected_idx: *selected_idx,
-                    namespaces: namespaces.clone(),
-                },
-                namespace,
-                tables,
-                selected_idx: 0,
-            }),
+            ) => {
+                let table_selected_idx = if tables.is_empty() { None } else { Some(0) };
+
+                TanicAppState::ViewingTablesList(ViewingTablesListState {
+                    namespaces: ViewingNamespacesListState {
+                        selected_idx: *namespace_selected_idx,
+                        namespaces: namespaces.clone(),
+                    },
+                    namespace,
+                    tables,
+                    selected_idx: table_selected_idx,
+                })
+            }
 
             (
                 TanicAction::FocusPrevTable,
@@ -133,11 +143,13 @@ impl TanicAppState {
                     selected_idx,
                 }),
             ) => {
-                let selected_idx = if *selected_idx == 0 {
-                    tables.len() - 1
-                } else {
-                    *selected_idx - 1
-                };
+                let selected_idx = selected_idx.map(|selected_idx| {
+                    if selected_idx == 0 {
+                        tables.len() - 1
+                    } else {
+                        selected_idx - 1
+                    }
+                });
 
                 TanicAppState::ViewingTablesList(ViewingTablesListState {
                     namespaces: namespaces.clone(),
@@ -156,11 +168,13 @@ impl TanicAppState {
                     selected_idx,
                 }),
             ) => {
-                let selected_idx = if *selected_idx == tables.len() - 1 {
-                    0
-                } else {
-                    *selected_idx + 1
-                };
+                let selected_idx = selected_idx.map(|selected_idx| {
+                    if selected_idx == tables.len() - 1 {
+                        0
+                    } else {
+                        selected_idx + 1
+                    }
+                });
 
                 TanicAppState::ViewingTablesList(ViewingTablesListState {
                     namespaces: namespaces.clone(),

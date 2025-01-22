@@ -47,7 +47,8 @@ impl Widget for &TableListView<'_> {
             .tables
             .iter()
             .map(|table| {
-                let res: Box<dyn Mappable> = Box::new(MapItem::with_size(table.row_count as f64));
+                let res: Box<dyn Mappable> =
+                    Box::new(MapItem::with_size(table.row_count.max(1) as f64));
                 res
             })
             .collect::<Vec<_>>();
@@ -77,7 +78,7 @@ impl Widget for &TableListView<'_> {
 
                     ctx.draw(&rect);
 
-                    let style = if idx == selected_idx {
+                    let style = if Some(idx) == selected_idx {
                         Style::new().black().bold().on_white()
                     } else {
                         Style::new().white()
