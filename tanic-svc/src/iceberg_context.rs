@@ -2,7 +2,6 @@
 
 use iceberg::{Catalog, NamespaceIdent};
 use iceberg_catalog_rest::{RestCatalog, RestCatalogConfig};
-use std::ops::DerefMut;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::watch::Receiver;
@@ -29,6 +28,7 @@ struct IcebergContext {
     namespaces: Vec<NamespaceDeets>,
     tables: Vec<TableDeets>,
 
+    #[allow(unused)] // TODO: cancellation
     pub cancellable_action: Option<JoinHandle<()>>,
 }
 
@@ -110,8 +110,12 @@ impl IcebergContextManager {
         // spawn a task to start populating the namespaces
         let action_tx = self.action_tx.clone();
         let ctx = self.iceberg_context.clone();
-        let jh = tokio::spawn(async move {
-            Self::populate_namespaces(ctx.clone(), action_tx.clone()).await;
+        // TODO: store the join handle for cancellation
+        let _jh = tokio::spawn(async move {
+            let res = Self::populate_namespaces(ctx.clone(), action_tx.clone()).await;
+            if let Err(error) = res {
+                tracing::error!(%error, "Error populating namespaces");
+            }
         });
 
         Ok(())
@@ -192,7 +196,7 @@ impl IcebergContextManager {
 
 impl IcebergContext {
     /// Create a new Iceberg Context from a Uri
-    pub fn connect_to(&mut self, connection_details: &ConnectionDetails) -> () {
+    pub fn connect_to(&mut self, connection_details: &ConnectionDetails) {
         self.connection_details = Some(connection_details.clone());
 
         let mut uri_str = connection_details.uri.to_string();
