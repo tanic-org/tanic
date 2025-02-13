@@ -2,17 +2,17 @@ use crate::component::Component;
 use ratatui::prelude::*;
 use ratatui::symbols::border;
 use ratatui::widgets::{Block, Paragraph};
-use tanic_core::message::TableDeets;
+use tanic_svc::state::TableDescriptor;
 
 const NERD_FONT_ICON_TABLE: &str = "\u{ebb7}"; // 
 
 pub(crate) struct TableListItem<'a> {
-    pub(crate) table: &'a TableDeets,
+    pub(crate) table: &'a TableDescriptor,
     pub(crate) is_selected: bool,
 }
 
 impl<'a> TableListItem<'a> {
-    pub(crate) fn new(table: &'a TableDeets, is_selected: bool) -> Self {
+    pub(crate) fn new(table: &'a TableDescriptor, is_selected: bool) -> Self {
         Self { table, is_selected }
     }
 }
@@ -27,10 +27,16 @@ impl Component for &TableListItem<'_> {
         }
 
         let name = self.table.name.clone();
-        let plural_suffix = if self.table.row_count == 1 { "" } else { "s" };
+
+        let row_count_str = match self.table.row_count() {
+            None => "".to_string(),
+            Some(1) => " (1 row)".to_string(),
+            Some(n) => format!(" ({n} rows)")
+        };
+
         let name = format!(
-            "{} {} ({} row{})",
-            NERD_FONT_ICON_TABLE, name, self.table.row_count, plural_suffix
+            "{} {}{}",
+            NERD_FONT_ICON_TABLE, name, row_count_str
         );
 
         let para_rect = Rect::new(

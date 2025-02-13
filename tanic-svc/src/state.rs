@@ -1,5 +1,11 @@
+use std::collections::HashMap;
+use indexmap::IndexMap;
+use iceberg::spec::{DataFile, Manifest, ManifestList, Snapshot};
+use iceberg::table::Table;
+use parquet::file::metadata::ParquetMetaData;
 use tanic_core::config::ConnectionDetails;
-use tanic_core::message::{NamespaceDeets, TableDeets};
+
+const TABLE_SUMMARY_KEY_ROW_COUNT: &str = "row-count";
 
 #[derive(Debug)]
 pub enum TanicAction {
@@ -7,191 +13,518 @@ pub enum TanicAction {
 
     ConnectTo(ConnectionDetails),
 
-    RetrievedNamespaceList(Vec<NamespaceDeets>),
+    // Iceberg metadata update actions
+    UpdateNamespacesList(Vec<String>),
+    UpdateNamespaceProperties(String, HashMap<String,String>),
+    UpdateNamespaceTableList(String, Vec<String>),
+    UpdateTable { namespace: String, table_name: String, table: Table },
+    UpdateTableSummary { namespace: String, table_name: String, table_summary: HashMap<String, String> },
+    UpdateTableCurrentSnapshot { namespace: String, table_name: String, snapshot: Snapshot },
+    UpdateTableCurrentManifestList { namespace: String, table_name: String, manifest_list: ManifestList },
+    UpdateTableManifest { namespace: String, table_name: String, manifest: Manifest, file_path: String, },
+    UpdateTableDataFile { namespace: String, table_name: String, data_file: DataFile },
+    UpdateTableParquetMetaData { namespace: String, table_name: String, file_path: String, metadata: ParquetMetaData },
+
+    ///// UI Actions ///////
     FocusPrevNamespace,
     FocusNextNamespace,
     SelectNamespace,
 
-    RetrievedTableList(NamespaceDeets, Vec<TableDeets>),
-    EnrichedTableDetails(),
     FocusPrevTable,
     FocusNextTable,
     SelectTable,
-    LeaveNamespace,
+
+    Escape,
+
+    FocusNextPartition,
+    FocusPrevPartition,
+    SelectPartition,
+
+    FocusNextDataFile,
+    FocusPrevDataFile,
+    SelectDataFile,
 }
 
 #[derive(Clone, Debug, Default)]
-pub enum TanicAppState {
+pub struct TanicAppState {
+    pub iceberg: TanicIcebergState,
+    pub ui: TanicUiState,
+}
+
+#[derive(Clone, Debug, Default)]
+pub enum TanicIcebergState {
     #[default]
     Initializing,
     ConnectingTo(ConnectionDetails),
+    Connected(RetrievedIcebergMetadata),
+    Exiting,
+}
+
+#[derive(Clone, Debug)]
+pub struct RetrievedIcebergMetadata {
+    pub namespaces: IndexMap<String, NamespaceDescriptor>,
+}
+
+#[derive(Clone, Debug)]
+pub struct NamespaceDescriptor {
+    pub name: String,
+    properties: Option<HashMap<String, String>>,
+    pub tables: Option<IndexMap<String, TableDescriptor>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct TableDescriptor {
+    pub name: String,
+    #[allow(unused)]
+    namespace: Vec<String>,
+    current_snapshot_summary: Option<HashMap<String, String>>,
+    table: Option<Table>,
+    current_snapshot: Option<Snapshot>,
+    current_manifest_list: Option<ManifestList>,
+    manifests: IndexMap<String, Manifest>,
+    datafiles: HashMap<String, DataFile>,
+    parquet_metadata: HashMap<String, ParquetMetaData>,
+}
+
+impl TableDescriptor {
+    pub fn row_count(&self) -> Option<u64> {
+        self.current_snapshot_summary.as_ref().and_then(|summary|summary.get(
+            TABLE_SUMMARY_KEY_ROW_COUNT
+        )).and_then(|val| str::parse::<u64>(val).ok())
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub enum TanicUiState {
+    #[default]
+    SplashScreen,
     ViewingNamespacesList(ViewingNamespacesListState),
-    RetrievingTableList(ViewingNamespacesListState),
     ViewingTablesList(ViewingTablesListState),
     Exiting,
 }
 
 #[derive(Clone, Debug)]
 pub struct ViewingNamespacesListState {
-    pub namespaces: Vec<NamespaceDeets>,
     pub selected_idx: Option<usize>,
 }
 
 #[derive(Clone, Debug)]
 pub struct ViewingTablesListState {
     pub namespaces: ViewingNamespacesListState,
-    pub namespace: NamespaceDeets,
-    pub tables: Vec<TableDeets>,
     pub selected_idx: Option<usize>,
 }
 
 impl TanicAppState {
-    pub(crate) fn reduce(self, action: TanicAction) -> Self {
-        match (action, &self) {
-            (TanicAction::Exit, _) => TanicAppState::Exiting,
+    pub(crate) fn update(mut self, action: TanicAction) -> Self {
+        match (action, &mut self) {
+            (TanicAction::Exit, _) => {
+                self.iceberg = TanicIcebergState::Exiting;
+                self.ui = TanicUiState::Exiting;
+            },
 
-            (TanicAction::ConnectTo(conn_details), _) => TanicAppState::ConnectingTo(conn_details),
+            (TanicAction::ConnectTo(conn_details), _) => {
+                self.iceberg = TanicIcebergState::ConnectingTo(conn_details);
+                self.ui = TanicUiState::SplashScreen;
+            },
 
-            (TanicAction::RetrievedNamespaceList(namespaces), _) => {
-                let selected_idx = if namespaces.is_empty() { None } else { Some(0) };
+            (TanicAction::UpdateNamespacesList(namespaces), _) => {
+                let selected_idx = if namespaces.is_empty() { None } else {
+                    Some(0)
+                };
 
-                TanicAppState::ViewingNamespacesList(ViewingNamespacesListState {
+                let namespaces = IndexMap::from_iter(
+                    namespaces.iter().map(|ns|(ns.clone(), NamespaceDescriptor {
+                        name: ns.clone(),
+                        properties: None,
+                        tables: None
+                    }))
+                );
+
+                self.iceberg = TanicIcebergState::Connected(RetrievedIcebergMetadata {
                     namespaces,
-                    selected_idx,
-                })
-            }
+                });
+                self.ui = TanicUiState::ViewingNamespacesList(ViewingNamespacesListState {
+                    selected_idx
+                });
+            },
+
+            (TanicAction::UpdateNamespaceProperties(namespace, properties), prev_state) => {
+                let TanicAppState { iceberg, .. } = prev_state;
+
+                let TanicIcebergState::Connected(ref mut retrieved_iceberg_metadata ) = iceberg else {
+                    panic!();
+                };
+
+                let Some(namespacce_desc) = retrieved_iceberg_metadata.namespaces.get_mut(&namespace) else {
+                    panic!();
+                };
+
+                namespacce_desc.properties = Some(properties);
+            },
+
+            (TanicAction::UpdateNamespaceTableList(namespace, table_names), prev_state) => {
+                let TanicAppState { iceberg, .. } = prev_state;
+
+                let TanicIcebergState::Connected(ref mut retrieved_iceberg_metadata ) = iceberg else {
+                    panic!();
+                };
+
+                let Some(namespacce_desc) = retrieved_iceberg_metadata.namespaces.get_mut(&namespace) else {
+                    panic!();
+                };
+
+                namespacce_desc.tables = Some(IndexMap::from_iter(table_names.into_iter().map(
+                    |name| (
+                        name.clone(),
+                        TableDescriptor {
+                            name,
+                            namespace: namespace.split(" ").map(|s|s.to_string()).collect::<Vec<_>>(),
+                            current_snapshot_summary: None,
+                            table: None,
+                            current_snapshot: None,
+                            current_manifest_list: None,
+                            manifests: IndexMap::default(),
+                            datafiles: HashMap::default(),
+                            parquet_metadata: HashMap::default(),
+                        }
+                    )
+                )))
+            },
+
+            (TanicAction::UpdateTable { namespace, table_name, table }, prev_state) => {
+                let TanicAppState { iceberg, .. } = prev_state;
+
+                let TanicIcebergState::Connected(ref mut retrieved_iceberg_metadata ) = iceberg else {
+                    panic!();
+                };
+
+                let Some(namespacce_desc) = retrieved_iceberg_metadata.namespaces.get_mut(&namespace) else {
+                    panic!();
+                };
+
+                let Some(ref mut table_desc) = namespacce_desc.tables else {
+                    panic!();
+                };
+
+                let Some(table_desc) = table_desc.get_mut(&table_name) else {
+                    panic!();
+                };
+
+                table_desc.table = Some(table);
+            },
+
+            (TanicAction::UpdateTableSummary { namespace, table_name, table_summary }, prev_state) => {
+                let TanicAppState { iceberg, .. } = prev_state;
+
+                let TanicIcebergState::Connected(ref mut retrieved_iceberg_metadata ) = iceberg else {
+                    panic!();
+                };
+
+                let Some(namespacce_desc) = retrieved_iceberg_metadata.namespaces.get_mut(&namespace) else {
+                    panic!();
+                };
+
+                let Some(ref mut table_desc) = namespacce_desc.tables else {
+                    panic!();
+                };
+
+                let Some(table_desc) = table_desc.get_mut(&table_name) else {
+                    panic!();
+                };
+
+                table_desc.current_snapshot_summary = Some(table_summary);
+            },
+
+            (TanicAction::UpdateTableCurrentSnapshot { namespace, table_name, snapshot }, prev_state) => {
+                let TanicAppState { iceberg, .. } = prev_state;
+
+                let TanicIcebergState::Connected(ref mut retrieved_iceberg_metadata ) = iceberg else {
+                    panic!();
+                };
+
+                let Some(namespacce_desc) = retrieved_iceberg_metadata.namespaces.get_mut(&namespace) else {
+                    panic!();
+                };
+
+                let Some(ref mut table_desc) = namespacce_desc.tables else {
+                    panic!();
+                };
+
+                let Some(table_desc) = table_desc.get_mut(&table_name) else {
+                    panic!();
+                };
+
+                table_desc.current_snapshot = Some(snapshot);
+            },
+
+            (TanicAction::UpdateTableCurrentManifestList { namespace, table_name, manifest_list }, prev_state) => {
+                let TanicAppState { iceberg, .. } = prev_state;
+
+                let TanicIcebergState::Connected(ref mut retrieved_iceberg_metadata ) = iceberg else {
+                    panic!();
+                };
+
+                let Some(namespacce_desc) = retrieved_iceberg_metadata.namespaces.get_mut(&namespace) else {
+                    panic!();
+                };
+
+                let Some(ref mut table_desc) = namespacce_desc.tables else {
+                    panic!();
+                };
+
+                let Some(table_desc) = table_desc.get_mut(&table_name) else {
+                    panic!();
+                };
+
+                table_desc.current_manifest_list = Some(manifest_list);
+            },
+
+            (TanicAction::UpdateTableManifest { namespace, table_name, manifest, file_path: uri }, prev_state) => {
+                let TanicAppState { iceberg, .. } = prev_state;
+
+                let TanicIcebergState::Connected(ref mut retrieved_iceberg_metadata ) = iceberg else {
+                    panic!();
+                };
+
+                let Some(namespacce_desc) = retrieved_iceberg_metadata.namespaces.get_mut(&namespace) else {
+                    panic!();
+                };
+
+                let Some(ref mut table_desc) = namespacce_desc.tables else {
+                    panic!();
+                };
+
+                let Some(table_desc) = table_desc.get_mut(&table_name) else {
+                    panic!();
+                };
+
+                table_desc.manifests.insert(
+                    uri,
+                    manifest
+                );
+            },
+
+            (TanicAction::UpdateTableDataFile { namespace, table_name, data_file }, prev_state) => {
+                let TanicAppState { iceberg, .. } = prev_state;
+
+                let TanicIcebergState::Connected(ref mut retrieved_iceberg_metadata ) = iceberg else {
+                    panic!();
+                };
+
+                let Some(namespacce_desc) = retrieved_iceberg_metadata.namespaces.get_mut(&namespace) else {
+                    panic!();
+                };
+
+                let Some(ref mut table_desc) = namespacce_desc.tables else {
+                    panic!();
+                };
+
+                let Some(table_desc) = table_desc.get_mut(&table_name) else {
+                    panic!();
+                };
+
+                table_desc.datafiles.insert(
+                    data_file.file_path().to_string(),
+                    data_file
+                );
+            },
+
+            (TanicAction::UpdateTableParquetMetaData { namespace, table_name, file_path, metadata }, prev_state) => {
+                let TanicAppState { iceberg, .. } = prev_state;
+
+                let TanicIcebergState::Connected(ref mut retrieved_iceberg_metadata ) = iceberg else {
+                    panic!();
+                };
+
+                let Some(namespacce_desc) = retrieved_iceberg_metadata.namespaces.get_mut(&namespace) else {
+                    panic!();
+                };
+
+                let Some(ref mut table_desc) = namespacce_desc.tables else {
+                    panic!();
+                };
+
+                let Some(table_desc) = table_desc.get_mut(&table_name) else {
+                    panic!();
+                };
+
+                table_desc.parquet_metadata.insert(
+                    file_path,
+                    metadata
+                );
+            },
 
             (
                 TanicAction::FocusPrevNamespace,
-                TanicAppState::ViewingNamespacesList(ViewingNamespacesListState {
-                    namespaces,
-                    selected_idx,
-                }),
+                prev_state
             ) => {
-                let selected_idx = selected_idx.map(|selected_idx| {
+                let TanicAppState { iceberg, ui } = prev_state;
+
+                let TanicUiState::ViewingNamespacesList(ref mut viewing_namespaces_list_state ) = ui else {
+                    panic!();
+                };
+
+                let TanicIcebergState::Connected(ref mut retrieved_iceberg_metadata ) = iceberg else {
+                    panic!();
+                };
+
+                viewing_namespaces_list_state.selected_idx = viewing_namespaces_list_state.selected_idx.map(|selected_idx| {
                     if selected_idx == 0 {
-                        namespaces.len() - 1
+                        retrieved_iceberg_metadata.namespaces.len() - 1
                     } else {
                         selected_idx - 1
                     }
                 });
-
-                TanicAppState::ViewingNamespacesList(ViewingNamespacesListState {
-                    namespaces: namespaces.clone(),
-                    selected_idx,
-                })
             }
 
             (
                 TanicAction::FocusNextNamespace,
-                TanicAppState::ViewingNamespacesList(ViewingNamespacesListState {
-                    namespaces,
-                    selected_idx,
-                }),
+                prev_state
             ) => {
-                let selected_idx = selected_idx.map(|selected_idx| {
-                    if selected_idx == namespaces.len() - 1 {
+                let TanicAppState { iceberg, ui } = prev_state;
+
+                let TanicUiState::ViewingNamespacesList(ref mut viewing_namespaces_list_state ) = ui else {
+                    panic!();
+                };
+
+                let TanicIcebergState::Connected(ref mut retrieved_iceberg_metadata ) = iceberg else {
+                    panic!();
+                };
+
+                viewing_namespaces_list_state.selected_idx = viewing_namespaces_list_state.selected_idx.map(|selected_idx| {
+                    if selected_idx == retrieved_iceberg_metadata.namespaces.len() - 1 {
                         0
                     } else {
                         selected_idx + 1
                     }
                 });
-
-                TanicAppState::ViewingNamespacesList(ViewingNamespacesListState {
-                    namespaces: namespaces.clone(),
-                    selected_idx,
-                })
-            }
+            },
 
             (
                 TanicAction::SelectNamespace,
-                TanicAppState::ViewingNamespacesList(ViewingNamespacesListState {
-                    selected_idx,
-                    namespaces,
-                }),
-            ) => TanicAppState::RetrievingTableList(ViewingNamespacesListState {
-                selected_idx: *selected_idx,
-                namespaces: namespaces.clone(),
-            }),
-
-            (
-                TanicAction::RetrievedTableList(namespace, tables),
-                TanicAppState::RetrievingTableList(ViewingNamespacesListState {
-                    selected_idx: namespace_selected_idx,
-                    namespaces,
-                }),
+                prev_state,
             ) => {
-                let table_selected_idx = if tables.is_empty() { None } else { Some(0) };
+                let TanicAppState { ui, .. } = prev_state;
 
-                TanicAppState::ViewingTablesList(ViewingTablesListState {
-                    namespaces: ViewingNamespacesListState {
-                        selected_idx: *namespace_selected_idx,
-                        namespaces: namespaces.clone(),
-                    },
-                    namespace,
-                    tables,
-                    selected_idx: table_selected_idx,
-                })
-            }
+                let TanicUiState::ViewingNamespacesList(namespaces ) = ui else {
+                    panic!();
+                };
+
+                self.ui = TanicUiState::ViewingTablesList(ViewingTablesListState {
+                    namespaces: namespaces.clone(),
+                    selected_idx: None,
+                });
+            },
 
             (
                 TanicAction::FocusPrevTable,
-                TanicAppState::ViewingTablesList(ViewingTablesListState {
-                    namespaces,
-                    namespace,
-                    tables,
-                    selected_idx,
-                }),
+                prev_state,
             ) => {
-                let selected_idx = selected_idx.map(|selected_idx| {
-                    if selected_idx == 0 {
-                        tables.len() - 1
-                    } else {
-                        selected_idx - 1
-                    }
-                });
+                let TanicAppState { iceberg, ui } = prev_state;
 
-                TanicAppState::ViewingTablesList(ViewingTablesListState {
-                    namespaces: namespaces.clone(),
-                    namespace: namespace.clone(),
-                    tables: tables.clone(),
-                    selected_idx,
-                })
-            }
+                let TanicIcebergState::Connected(ref mut retrieved_iceberg_metadata ) = iceberg else {
+                    panic!();
+                };
+
+                let TanicUiState::ViewingTablesList(ref mut viewing_tables_list_state ) = ui else {
+                    panic!();
+                };
+
+                let Some(namespace_selected_idx) = viewing_tables_list_state.namespaces.selected_idx else {
+                    panic!();
+                };
+
+                let Some(&namespace_selected_name) = retrieved_iceberg_metadata.namespaces.keys().collect::<Vec<_>>().get(namespace_selected_idx) else {
+                    panic!();
+                };
+
+                let Some(namespace) = retrieved_iceberg_metadata.namespaces.get(namespace_selected_name) else {
+                    panic!();
+                };
+
+                if let Some(ref table_list) = namespace.tables {
+                    let table_list_len = table_list.len();
+
+                    viewing_tables_list_state.selected_idx = viewing_tables_list_state.selected_idx.map(|selected_idx| {
+                        if selected_idx == 0 {
+                            table_list_len - 1
+                        } else {
+                            selected_idx - 1
+                        }
+                    });
+                }
+            },
 
             (
                 TanicAction::FocusNextTable,
-                TanicAppState::ViewingTablesList(ViewingTablesListState {
-                    namespaces,
-                    namespace,
-                    tables,
-                    selected_idx,
-                }),
+                prev_state,
             ) => {
-                let selected_idx = selected_idx.map(|selected_idx| {
-                    if selected_idx == tables.len() - 1 {
-                        0
-                    } else {
-                        selected_idx + 1
-                    }
-                });
+                let TanicAppState { iceberg, ui } = prev_state;
 
-                TanicAppState::ViewingTablesList(ViewingTablesListState {
-                    namespaces: namespaces.clone(),
-                    namespace: namespace.clone(),
-                    tables: tables.clone(),
-                    selected_idx,
-                })
-            }
+                let TanicIcebergState::Connected(ref mut retrieved_iceberg_metadata ) = iceberg else {
+                    panic!();
+                };
 
-            (TanicAction::SelectTable, _) => self,
+                let TanicUiState::ViewingTablesList(ref mut viewing_tables_list_state ) = ui else {
+                    panic!();
+                };
+
+                let Some(namespace_selected_idx) = viewing_tables_list_state.namespaces.selected_idx else {
+                    panic!();
+                };
+
+                let Some(&namespace_selected_name) = retrieved_iceberg_metadata.namespaces.keys().collect::<Vec<_>>().get(namespace_selected_idx) else {
+                    panic!();
+                };
+
+                let Some(namespace) = retrieved_iceberg_metadata.namespaces.get(namespace_selected_name) else {
+                    panic!();
+                };
+
+                if let Some(ref table_list) = namespace.tables {
+                    viewing_tables_list_state.selected_idx = viewing_tables_list_state.selected_idx.map(|selected_idx| {
+                        if selected_idx == table_list.len() - 1 {
+                            0
+                        } else {
+                            selected_idx + 1
+                        }
+                    });
+                }
+            },
 
             (
-                TanicAction::LeaveNamespace,
-                TanicAppState::ViewingTablesList(ViewingTablesListState { namespaces, .. }),
-            ) => TanicAppState::ViewingNamespacesList(namespaces.clone()),
+                TanicAction::Escape,
+                TanicAppState {
+                    ui,
+                    ..
+                }
+            ) => {
+                match ui {
+                    TanicUiState::ViewingTablesList(ViewingTablesListState {
+                        namespaces,
+                        ..
+                    }) => {
+                        self.ui = TanicUiState::ViewingNamespacesList(namespaces.clone())
+                    }
+                    _ => {}
+                }
+            }
+            // TODO:
 
-            _ => self,
+            // * Escape
+            // * SelectTable
+            // * FocusNextPartition
+            // * FocusPrevPartition,
+            // * SelectPartition,
+            // * FocusNextDataFile,
+            // * FocusPrevDataFile,
+            // * SelectDataFile
+
+            _ => {
+                unimplemented!()
+            },
         }
+
+        self
     }
 }

@@ -5,7 +5,7 @@ use iceberg_catalog_rest::{RestCatalog, RestCatalogConfig};
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::watch::Receiver;
-use tokio::sync::RwLock;
+use std::sync::RwLock;
 use tokio::task::JoinHandle;
 use tokio_stream::{wrappers::WatchStream, StreamExt};
 
@@ -13,7 +13,7 @@ use tanic_core::config::ConnectionDetails;
 use tanic_core::message::{NamespaceDeets, TableDeets};
 use tanic_core::{Result, TanicError};
 
-use crate::state::{TanicAction, TanicAppState, ViewingNamespacesListState};
+use crate::state::{TanicAction, TanicAppState, TanicIcebergState};
 
 type ActionTx = UnboundedSender<TanicAction>;
 type IceCtxRef = Arc<RwLock<IcebergContext>>;
@@ -37,33 +37,46 @@ struct IcebergContext {
 pub struct IcebergContextManager {
     action_tx: ActionTx,
     iceberg_context: IceCtxRef,
+    state_ref: Arc<RwLock<TanicAppState>>,
 }
 
 impl IcebergContextManager {
-    pub fn new(action_tx: ActionTx) -> Self {
+    pub fn new(action_tx: ActionTx, state_ref: Arc<RwLock<TanicAppState>>) -> Self {
         Self {
             action_tx,
+            state_ref,
             iceberg_context: Arc::new(RwLock::new(IcebergContext::default())),
         }
     }
 
-    pub async fn event_loop(&self, state_rx: Receiver<TanicAppState>) -> Result<()> {
+    pub async fn event_loop(&self, state_rx: Receiver<()>) -> Result<()> {
         let mut state_stream = WatchStream::new(state_rx);
 
-        while let Some(state) = state_stream.next().await {
-            match state {
-                TanicAppState::ConnectingTo(ref new_conn_details) => {
-                    self.connect_to(new_conn_details).await?;
-                }
+        while state_stream.next().await.is_some() {
 
-                TanicAppState::RetrievingTableList(ViewingNamespacesListState {
-                    namespaces,
-                    selected_idx,
-                }) => {
-                    let Some(selected_idx) = selected_idx else {
-                        continue;
-                    };
-                    let namespace = namespaces[selected_idx].parts.clone();
+            let new_conn_details = {
+                let state = self.state_ref.read().unwrap();
+
+                match &state.iceberg {
+                    TanicIcebergState::ConnectingTo(ref new_conn_details) => {
+                        Some(new_conn_details.clone())
+                    }
+                    TanicIcebergState::Exiting => {
+                        break;
+                    }
+                    _ => None
+                }
+            };
+
+            if let Some(new_conn_details) = new_conn_details {
+                self.connect_to(&new_conn_details).await?;
+
+                let namespaces = {
+                    self.iceberg_context.read().unwrap().namespaces.clone()
+                };
+
+                // begin crawl
+                for namespace in namespaces {
 
                     // spawn a task to start populating the namespaces
                     let action_tx = self.action_tx.clone();
@@ -74,12 +87,6 @@ impl IcebergContextManager {
                         Self::populate_tables(ctx, action_tx, namespace).await
                     });
                 }
-
-                TanicAppState::Exiting => {
-                    break;
-                }
-
-                _ => {}
             }
         }
 
@@ -88,7 +95,7 @@ impl IcebergContextManager {
 
     async fn connect_to(&self, new_conn_details: &ConnectionDetails) -> Result<()> {
         {
-            let ctx = self.iceberg_context.read().await;
+            let ctx = self.iceberg_context.read().unwrap();
             if let Some(ref existing_conn_details) = ctx.connection_details {
                 if new_conn_details == existing_conn_details {
                     // do nothing, already connected to this catalog
@@ -99,7 +106,7 @@ impl IcebergContextManager {
 
         // cancel any in-progress action and connect to the new connection
         {
-            let mut ctx = self.iceberg_context.write().await;
+            let mut ctx = self.iceberg_context.write().unwrap();
             // TODO: cancel in-prog action
             // if let Some(cancellable) = *ctx.deref_mut().cancellable_action {
             //     cancellable.abort();
@@ -112,7 +119,7 @@ impl IcebergContextManager {
         let ctx = self.iceberg_context.clone();
         // TODO: store the join handle for cancellation
         let _jh = tokio::spawn(async move {
-            let res = Self::populate_namespaces(ctx.clone(), action_tx.clone()).await;
+            let res = Self::populate_namespaces(ctx, action_tx).await;
             if let Err(error) = res {
                 tracing::error!(%error, "Error populating namespaces");
             }
@@ -123,12 +130,16 @@ impl IcebergContextManager {
 
     async fn populate_namespaces(ctx: IceCtxRef, action_tx: ActionTx) -> Result<()> {
         let root_namespaces = {
-            let r_ctx = ctx.read().await;
+            let catalog = {
+                let r_ctx = ctx.read().unwrap();
 
-            let Some(ref catalog) = r_ctx.catalog else {
-                return Err(TanicError::unexpected(
-                    "Attempted to populate namespaces when catalog not initialised",
-                ));
+                let Some(ref catalog) = r_ctx.catalog else {
+                    return Err(TanicError::unexpected(
+                        "Attempted to populate namespaces when catalog not initialised",
+                    ));
+                };
+
+                catalog.clone()
             };
 
             catalog.list_namespaces(None).await?
@@ -141,11 +152,15 @@ impl IcebergContextManager {
 
         {
             let namespaces = namespaces.clone();
-            ctx.write().await.namespaces = namespaces;
+            ctx.write().unwrap().namespaces = namespaces;
         }
 
         action_tx
-            .send(TanicAction::RetrievedNamespaceList(namespaces))
+            .send(TanicAction::UpdateNamespacesList(
+                namespaces.iter().map(|ns| {
+                    ns.name.clone()
+                }).collect::<Vec<_>>()
+            ))
             .map_err(|err| TanicError::UnexpectedError(err.to_string()))?;
 
         Ok(())
@@ -154,16 +169,21 @@ impl IcebergContextManager {
     async fn populate_tables(
         ctx: IceCtxRef,
         action_tx: ActionTx,
-        namespace: Vec<String>,
+        namespace: NamespaceDeets,
     ) -> Result<()> {
-        let namespace_ident = NamespaceIdent::from_strs(namespace.clone())?;
+        let namespace_ident = NamespaceIdent::from_strs(namespace.parts.clone())?;
         let tables = {
-            let r_ctx = ctx.read().await;
 
-            let Some(ref catalog) = r_ctx.catalog else {
-                return Err(TanicError::unexpected(
-                    "Attempted to populate namespaces when catalog not initialised",
-                ));
+            let catalog = {
+                let r_ctx = ctx.read().unwrap();
+
+                let Some(ref catalog) = r_ctx.catalog else {
+                    return Err(TanicError::unexpected(
+                        "Attempted to populate namespaces when catalog not initialised",
+                    ));
+                };
+
+                catalog.clone()
             };
 
             catalog.list_tables(&namespace_ident).await?
@@ -172,7 +192,7 @@ impl IcebergContextManager {
         let tables = tables
             .into_iter()
             .map(|ti| TableDeets {
-                namespace: namespace.clone(),
+                namespace: namespace.parts.clone(),
                 name: ti.name().to_string(),
                 row_count: 1,
             })
@@ -180,13 +200,13 @@ impl IcebergContextManager {
 
         {
             let tables = tables.clone();
-            ctx.write().await.tables = tables;
+            ctx.write().unwrap().tables = tables;
         }
 
         action_tx
-            .send(TanicAction::RetrievedTableList(
-                NamespaceDeets::from_parts(namespace),
-                tables,
+            .send(TanicAction::UpdateNamespaceTableList(
+                namespace.name.clone(),
+                tables.iter().map(|t|&t.name).cloned().collect(),
             ))
             .map_err(TanicError::unexpected)?;
 

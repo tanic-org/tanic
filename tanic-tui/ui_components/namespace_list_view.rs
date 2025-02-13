@@ -1,3 +1,4 @@
+use std::sync::{Arc, RwLock};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::prelude::*;
 use ratatui::symbols::border;
@@ -7,18 +8,19 @@ use crate::component::Component;
 use crate::ui_components::namespace_list_item::NamespaceListItem;
 use crate::ui_components::treemap_layout::TreeMapLayout;
 use tanic_svc::{TanicAction, TanicAppState};
+use tanic_svc::state::{TanicIcebergState, TanicUiState};
 
-pub(crate) struct NamespaceListView<'a> {
-    state: &'a TanicAppState,
+pub(crate) struct NamespaceListView {
+    state: Arc<RwLock<TanicAppState>>,
 }
 
-impl<'a> NamespaceListView<'a> {
-    pub(crate) fn new(state: &'a TanicAppState) -> Self {
+impl NamespaceListView {
+    pub(crate) fn new(state: Arc<RwLock<TanicAppState>>) -> Self {
         Self { state }
     }
 }
 
-impl Component for &NamespaceListView<'_> {
+impl Component for &NamespaceListView {
     fn handle_key_event(&mut self, key_event: KeyEvent) -> Option<TanicAction> {
         match key_event.code {
             KeyCode::Left => Some(TanicAction::FocusPrevNamespace),
@@ -34,27 +36,47 @@ impl Component for &NamespaceListView<'_> {
             .border_set(border::PLAIN);
         let block_inner_area = block.inner(area);
 
-        let TanicAppState::ViewingNamespacesList(view_state) = self.state else {
-            panic!();
-        };
-
-        let items = view_state
-            .namespaces
-            .iter()
-            .enumerate()
-            .map(|(idx, ns)| {
-                NamespaceListItem::new(ns, view_state.selected_idx.unwrap_or(usize::MAX) == idx)
-            })
-            .collect::<Vec<_>>();
+        let state = self.state.read().unwrap();
+        let items = self.get_items(&state);
 
         let children: Vec<(&NamespaceListItem, usize)> = items
             .iter()
-            .map(|item| (item, item.ns.table_count))
+            .map(|item| {
+                let tables = &item.ns.tables;
+                let table_count = tables.as_ref().map(|t|t.len()).unwrap_or(0);
+
+                (item, table_count)
+            })
             .collect::<Vec<_>>();
 
         let layout = TreeMapLayout::new(children);
 
         block.render(area, buf);
         (&layout).render(block_inner_area, buf);
+    }
+}
+
+impl NamespaceListView {
+    fn get_items<'a>(&self, state: &'a TanicAppState) -> Vec<NamespaceListItem<'a>> {
+        // let state = self.state.read().unwrap();
+
+        let TanicIcebergState::Connected(ref iceberg_state) = state.iceberg else {
+            return vec![];
+        };
+
+        let TanicUiState::ViewingNamespacesList(ref view_state) = state.ui else {
+            return vec![];
+        };
+
+        let items = iceberg_state
+            .namespaces
+            .iter()
+            .enumerate()
+            .map(|(idx, (_, ns))| {
+                NamespaceListItem::new(ns, view_state.selected_idx.unwrap_or(usize::MAX) == idx)
+            })
+            .collect::<Vec<_>>();
+
+        items
     }
 }
