@@ -1,3 +1,5 @@
+use std::sync::Arc;
+use std::sync::RwLock;
 use tanic_core::TanicConfig;
 use tanic_core::{Result, TanicError};
 use tokio::sync::mpsc::{UnboundedReceiver as MpscReceiver, UnboundedSender as MpscSender};
@@ -7,25 +9,26 @@ pub mod iceberg_context;
 pub mod state;
 
 pub use state::{TanicAction, TanicAppState};
+use crate::state::TanicIcebergState;
 
 pub struct AppStateManager {
     action_rx: MpscReceiver<TanicAction>,
 
     #[allow(unused)]
     action_tx: MpscSender<TanicAction>,
-    state_tx: WatchSender<TanicAppState>,
+    state_tx: WatchSender<()>,
 
-    state: TanicAppState,
+    state: Arc<RwLock<TanicAppState>>,
 }
 
 impl AppStateManager {
     pub fn new(
         _config: TanicConfig,
-    ) -> (Self, MpscSender<TanicAction>, WatchReceiver<TanicAppState>) {
-        let state = TanicAppState::default();
+    ) -> (Self, MpscSender<TanicAction>, WatchReceiver<()>) {
+        let state = Arc::new(RwLock::new(TanicAppState::default()));
 
         let (action_tx, action_rx) = tokio::sync::mpsc::unbounded_channel();
-        let (state_tx, state_rx) = tokio::sync::watch::channel(state.clone());
+        let (state_tx, state_rx) = tokio::sync::watch::channel(());
 
         (
             Self {
@@ -39,25 +42,31 @@ impl AppStateManager {
         )
     }
 
+    pub fn get_state(&self) -> Arc<RwLock<TanicAppState>> {
+        self.state.clone()
+    }
+
     pub async fn event_loop(self) -> Result<()> {
         let Self {
-            mut state,
+            state,
             state_tx,
             mut action_rx,
             ..
         } = self;
 
-        while !matches!(state, TanicAppState::Exiting) {
+        while !matches!(state.read().unwrap().iceberg, TanicIcebergState::Exiting) {
             let Some(action) = action_rx.recv().await else {
                 break;
             };
             tracing::info!(?action, "AppState received an action");
 
-            let next_state = state.reduce(action);
+            {
+                let mut mut_state = state.write().unwrap();
+                *mut_state = mut_state.clone().update(action);
+            }
 
-            state = next_state;
             state_tx
-                .send(state.clone())
+                .send(())
                 .map_err(|err| TanicError::UnexpectedError(err.to_string()))?;
         }
 

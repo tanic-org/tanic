@@ -19,18 +19,24 @@ async fn main() -> Result<()> {
     let args = Args::try_parse().into_diagnostic()?;
     let config = TanicConfig::load().into_diagnostic()?;
     tracing::info!(?config, "loaded config");
-    // let config = Arc::new(RwLock::new(config));
 
     let (app_state, action_tx, state_rx) = AppStateManager::new(config);
-    let tanic_tui = TanicTui::new(action_tx.clone());
-    let iceberg_ctx_mgr = IcebergContextManager::new(action_tx.clone());
+
+    let ui_task = tokio::spawn({
+        let tanic_tui = TanicTui::new(action_tx.clone());
+        let state_rx = state_rx.clone();
+        let app_state = app_state.get_state();
+        async move { tanic_tui.event_loop(state_rx, app_state).await }
+    });
+
+    let iceberg_task = tokio::spawn({
+        let state_rx = state_rx.clone();
+        let app_state = app_state.get_state();
+        let iceberg_ctx_mgr = IcebergContextManager::new(action_tx.clone(), app_state);
+        async move { iceberg_ctx_mgr.event_loop(state_rx).await }
+    });
 
     let svc_task = tokio::spawn(async move { app_state.event_loop().await });
-    let ui_state_rx = state_rx.clone();
-    let ui_task = tokio::spawn(async move { tanic_tui.event_loop(ui_state_rx).await });
-    let iceberg_task_state_rx = state_rx.clone();
-    let iceberg_task =
-        tokio::spawn(async move { iceberg_ctx_mgr.event_loop(iceberg_task_state_rx).await });
 
     if let Some(ref uri) = args.catalogue_uri {
         let connection = ConnectionDetails::new_anon(uri.clone());
